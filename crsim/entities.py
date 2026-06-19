@@ -76,6 +76,30 @@ class Entity:
     slow_timer: float = 0.0
     slow_factor: float = 0.5
 
+    # Load time (first-hit mechanic)
+    load_time: float = 0.0  # max time that can be preloaded while moving
+    load_progress: float = 0.0  # accumulated load while moving toward target
+
+    # Freeze
+    freeze_timer: float = 0.0  # remaining freeze duration; >0 = frozen
+
+    # Rage
+    rage_timer: float = 0.0
+    rage_speed_mult: float = 1.4  # 40% boost (confirmed from CR data)
+
+    # Poison
+    poison_timer: float = 0.0
+    poison_dps: float = 0.0
+
+    # Hidden stats (aggro, collision, mass)
+    sight_range: float = 5.5  # aggro range in tiles (default for most troops)
+    collision_radius: float = 0.5  # collision size in tiles
+    mass: float = 6.0  # determines push interaction (higher = harder to push)
+
+    # Projectile
+    has_projectile: bool = False
+    projectile_speed: float = 0.0  # tiles/sec; 0 = instant
+
     # Death spawns
     death_spawn_card_type: CardType | None = None
     death_spawn_count: int = 0
@@ -91,8 +115,12 @@ class Entity:
         return self.stun_timer > 0.0
 
     @property
+    def frozen(self) -> bool:
+        return self.freeze_timer > 0.0
+
+    @property
     def active(self) -> bool:
-        return self.alive and self.is_deployed and not self.stunned
+        return self.alive and self.is_deployed and not self.stunned and not self.frozen
 
     @property
     def damage_per_hit(self) -> float:
@@ -106,10 +134,13 @@ class Entity:
     @property
     def effective_speed(self) -> float:
         if self.is_charging:
-            return self.charge_speed
-        s = self.speed
+            s = self.charge_speed
+        else:
+            s = self.speed
         if self.slow_timer > 0:
             s *= self.slow_factor
+        if self.rage_timer > 0:
+            s *= self.rage_speed_mult
         return s
 
     def distance_to(self, other: Entity) -> float:
@@ -190,7 +221,13 @@ def entity_from_card(
         charge_damage_mult=card_def.charge_damage_mult,
         has_shield=card_def.has_shield,
         shield_hp=card_def.shield_hp,
-        death_spawn_card_type=card_def.death_spawn_type,
+        load_time=card_def.load_time,
+        sight_range=card_def.sight_range,
+        collision_radius=card_def.collision_radius,
+        mass=getattr(card_def, 'mass', 6.0),
+        has_projectile=card_def.has_projectile,
+        projectile_speed=getattr(card_def, 'projectile_speed', 0.0),
+        death_spawn_card_type=card_def.death_spawn_card,
         death_spawn_count=card_def.death_spawn_count,
         death_spawn_hp=card_def.death_spawn_hp,
         death_spawn_dps=card_def.death_spawn_dps,

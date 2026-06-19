@@ -85,28 +85,10 @@ def main() -> None:
         adr_max_strength=0.25,
     )
 
-    # Training loop
-    logger.info("Starting self-play training loop")
-    logger.info(f"Curriculum phase: {curriculum.phase.name}")
-    logger.info(f"Domain randomization strength: {randomizer.strength:.2f}")
-
-    # The actual training loop would run here
-    # For now, log the architecture
-    logger.info("\nTraining architecture:")
-    logger.info("  1. CPU workers generate games using Rust engine (757 games/sec/core)")
-    logger.info("  2. GPU batcher evaluates states in batches of 256")
-    logger.info("  3. Gumbel MuZero search with 16 simulations per move")
-    logger.info("  4. Replay buffer stores trajectories for training")
-    logger.info("  5. CRStarNet updates from replay buffer every 1000 games")
-    logger.info("  6. League opponents updated via PFSP")
-    logger.info("  7. Curriculum advances based on win rate thresholds")
-    logger.info("  8. Domain randomization adapts via ADR")
-
-    logger.info("\nReady to train. Requires:")
-    logger.info("  - Model: CRStarNet (model/model.py)")
-    logger.info("  - Data: Kaggle matchups (data/imitation/matchups.csv)")
-    logger.info("  - Compute: 8+ CPU cores, 1+ GPU")
-    logger.info("  - Time: 48-72 hours for competitive play")
+    # Delegate to the real training script
+    logger.info("Delegating to scripts/train_v2.py training loop")
+    from scripts.train_v2 import main as train_main
+    train_main()
 
 
 if __name__ == "__main__":

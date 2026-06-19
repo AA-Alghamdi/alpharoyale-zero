@@ -110,7 +110,7 @@ class DeckSampler:
     def _name_to_enum(self, name: str):
         """Convert card name string to CardType enum."""
         if self._card_type_enum is None:
-            from crsim.cards_v2 import CardType
+            from crsim.cards import CardType
             self._card_type_enum = CardType
         return self._card_type_enum[name]
 
@@ -167,7 +167,7 @@ class DeckSampler:
         - At least 1 win condition
         """
         if self._card_type_enum is None:
-            from crsim.cards_v2 import CardType
+            from crsim.cards import CardType
             self._card_type_enum = CardType
 
         all_cards = list(self._card_type_enum)

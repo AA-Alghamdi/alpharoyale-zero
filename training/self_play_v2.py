@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
-from crsim.cards import CardType
+from crsim.cards import CARD_DEFS, CardType
 from crsim.game import Action, CRGame
 from mcts.gumbel_search import GumbelConfig, GumbelMuZeroSearch, _action_id_to_action
 from model.features import (
@@ -24,6 +24,10 @@ from model.features import (
     extract_auxiliary_targets,
     extract_entity_features,
 )
+from training.curriculum import CurriculumManager, DeckSampler
+from training.domain_randomization import DomainRandomizer
+from training.league import League
+from training.opponent_model import CardTracker, ElixirTracker
 from training.replay_buffer import ReplayBuffer, ReplayEntry
 
 logger = logging.getLogger(__name__)
@@ -63,6 +67,9 @@ class SelfPlayWorkerV2:
         config: SelfPlayV2Config | None = None,
         device: torch.device | None = None,
         worker_id: int = 0,
+        curriculum: CurriculumManager | None = None,
+        randomizer: DomainRandomizer | None = None,
+        league: League | None = None,
     ) -> None:
         self.model = model
         self.replay_buffer = replay_buffer
@@ -77,18 +84,59 @@ class SelfPlayWorkerV2:
             device=self.device,
         )
 
+        # Integration modules
+        self.curriculum = curriculum
+        self.randomizer = randomizer or DomainRandomizer(strength=0.0)
+        self.league = league
+
+        # Opponent searcher (separate model for league opponents)
+        self._opponent_model: torch.nn.Module | None = None
+        self._opponent_searcher: GumbelMuZeroSearch | None = None
+
         self.games_played: int = 0
         self.total_positions: int = 0
         self.total_wins: dict[int, int] = {0: 0, 1: 0, -1: 0}
+
+    def _get_opponent_searcher(self, opponent_weights: dict | None) -> GumbelMuZeroSearch:
+        """Get or create opponent searcher with the given weights."""
+        if opponent_weights is None:
+            # Self-play: use own model
+            return self.searcher
+        # Load opponent model (lazy init)
+        if self._opponent_model is None:
+            import copy
+            self._opponent_model = copy.deepcopy(self.model)
+            self._opponent_searcher = GumbelMuZeroSearch(
+                model=self._opponent_model,
+                config=self.config.gumbel_config,
+                device=self.device,
+            )
+        self._opponent_model.load_state_dict(opponent_weights)
+        self._opponent_model.eval()
+        return self._opponent_searcher  # type: ignore[return-value]
 
     def play_game(self) -> list[ReplayEntry]:
         """Play one self-play game and return trajectory.
 
         Now collects entity features and real auxiliary targets at each step.
+        Uses League for opponent selection when available.
         """
         cfg = self.config
 
-        if cfg.random_decks:
+        # League opponent selection (PFSP)
+        # If league is provided, it should supply opponent weights via
+        # league.get_opponent_weights(worker_id) which returns None for self-play
+        # or a state_dict for a league opponent.
+        opponent_weights = None
+        if self.league is not None and hasattr(self.league, 'get_opponent_weights'):
+            opponent_weights = self.league.get_opponent_weights(self.worker_id)
+
+        opponent_searcher = self._get_opponent_searcher(opponent_weights)
+
+        # Deck selection: use curriculum if available, else random
+        if self.curriculum is not None:
+            deck_p0, deck_p1 = self.curriculum.deck_sampler.sample()
+        elif cfg.random_decks:
             deck_p0 = random_deck(cfg.card_pool, self.rng)
             deck_p1 = random_deck(cfg.card_pool, self.rng)
         else:
@@ -96,6 +144,14 @@ class SelfPlayWorkerV2:
             deck_p1 = None
 
         game = CRGame(deck_p0=deck_p0, deck_p1=deck_p1, seed=int(self.rng.integers(0, 2**31)))
+
+        # Apply domain randomization to initial entities (towers)
+        if self.randomizer.strength > 0:
+            self.randomizer.randomize_game(game)
+
+        # Set up opponent tracking (imperfect information)
+        card_trackers = [CardTracker(), CardTracker()]
+        elixir_trackers = [ElixirTracker(), ElixirTracker()]
 
         # Collect full trajectory with entity features + aux targets
         trajectory: list[dict] = []
@@ -111,12 +167,15 @@ class SelfPlayWorkerV2:
                 else:
                     self.searcher.config.temperature = 1.0
 
+                # Pick searcher: own model for P0, opponent for P1
+                searcher = self.searcher if player == 0 else opponent_searcher
+
                 # Full state encoding including entity features
                 spatial, scalar = encode_state(game, player)
                 entity_feats, entity_mask = extract_entity_features(game, player)
                 aux = extract_auxiliary_targets(game, player)
 
-                action_id, action_probs = self.searcher.select_action(
+                action_id, action_probs = searcher.select_action(
                     game, player, deterministic=False,
                 )
 
@@ -135,7 +194,29 @@ class SelfPlayWorkerV2:
                 action = _action_id_to_action(action_id, player)
                 actions_for_step.append(action)
 
+                # Track opponent's plays for belief state
+                if not action.is_wait:
+                    # Get the card type from the player's hand
+                    ps = game.players[player]
+                    card_idx = ps.hand[action.hand_slot]
+                    played_card_type = ps.deck[card_idx] if card_idx is not None else None
+                    if played_card_type is not None:
+                        opponent = 1 - player
+                        card_trackers[opponent].observe_play(
+                            int(played_card_type), game.tick_count
+                        )
+                        cost = CARD_DEFS.get(played_card_type)
+                        if cost is not None:
+                            elixir_trackers[opponent].observe_play(
+                                int(played_card_type), cost.cost, game.tick_count
+                            )
+
             game.step(actions_for_step)
+
+            # Apply domain randomization to newly spawned entities
+            if self.randomizer.strength > 0:
+                self.randomizer.randomize_game(game)
+
             move_count += 1
 
         # Determine winner

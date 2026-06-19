@@ -32,6 +32,9 @@ from crsim.cards import CardType
 from crsim.game import CRGame
 from mcts.gumbel_search import GumbelConfig, GumbelMuZeroSearch
 from model.transformer_net import CRStarNet
+from training.curriculum import CurriculumManager
+from training.domain_randomization import DomainRandomizer
+from training.league import AgentType, League, LeagueConfig
 from training.replay_buffer import ReplayBuffer
 from training.self_play_v2 import SelfPlayV2Config, SelfPlayWorkerV2
 from training.trainer_v2 import TrainerV2
@@ -163,6 +166,23 @@ def main() -> None:
         gumbel_config=gumbel_cfg,
     )
 
+    # Initialize curriculum, domain randomization, league
+    curriculum = CurriculumManager()
+    randomizer = DomainRandomizer(
+        strength=0.1, adr_enabled=True,
+        adr_min_strength=0.02, adr_max_strength=0.25,
+    )
+    league = League(LeagueConfig(
+        n_main_agents=1, n_league_exploiters=0, n_main_exploiters=0,
+    ))
+    # Register self as main agent
+    initial_ckpt = f"{args.checkpoint_dir}/initial.pt"
+    torch.save(model.state_dict(), initial_ckpt)
+    main_agent = league.add_agent(AgentType.MAIN, initial_ckpt)
+
+    logger.info("Curriculum phase: %s", curriculum.phase.name)
+    logger.info("Domain randomization strength: %.2f", randomizer.strength)
+
     trainer = TrainerV2(
         model=model,
         replay_buffer=replay_buffer,
@@ -178,7 +198,11 @@ def main() -> None:
     if args.distributed:
         _run_distributed(model, replay_buffer, trainer, sp_cfg, args, device)
     else:
-        _run_single_gpu(model, replay_buffer, trainer, sp_cfg, args, device)
+        _run_single_gpu(
+            model, replay_buffer, trainer, sp_cfg, args, device,
+            curriculum=curriculum, randomizer=randomizer,
+            league=league, main_agent=main_agent,
+        )
 
 
 def _run_single_gpu(
@@ -188,6 +212,10 @@ def _run_single_gpu(
     sp_cfg: SelfPlayV2Config,
     args: argparse.Namespace,
     device: torch.device,
+    curriculum: CurriculumManager | None = None,
+    randomizer: DomainRandomizer | None = None,
+    league: League | None = None,
+    main_agent=None,
 ) -> None:
     """Single-GPU training: alternate self-play and training."""
     worker = SelfPlayWorkerV2(
@@ -196,6 +224,8 @@ def _run_single_gpu(
         config=sp_cfg,
         device=device,
         worker_id=0,
+        curriculum=curriculum,
+        randomizer=randomizer,
     )
 
     logger.info("Starting single-GPU training loop")
@@ -208,9 +238,11 @@ def _run_single_gpu(
 
     # Alternate: self-play → train → self-play → train
     steps_since_eval = 0
+    total_games = 0
     while trainer.step_count < args.max_steps:
         # Self-play batch
         worker.run_batch(n_games=8)
+        total_games += 8
 
         # Train for a while
         for _ in range(100):
@@ -227,6 +259,25 @@ def _run_single_gpu(
                 "Eval @ step %d: %.1f%% win rate vs random",
                 trainer.step_count, win_rate * 100,
             )
+
+            # Update curriculum based on performance
+            if curriculum is not None:
+                phase_changed = curriculum.update(win_rate)
+                if phase_changed:
+                    logger.info("Curriculum advanced to: %s", curriculum.phase.name)
+
+            # Update ADR
+            if randomizer is not None:
+                randomizer.step_adr(win_rate)
+
+            # League snapshot
+            if league is not None and main_agent is not None:
+                league.update_win_rate(main_agent, main_agent, win_rate > 0.5)
+                if total_games % league.config.snapshot_every_n_games < 8:
+                    ckpt = f"{args.checkpoint_dir}/league_gen{main_agent.generation}.pt"
+                    torch.save(model.state_dict(), ckpt)
+                    league.snapshot_agent(main_agent, ckpt)
+
             steps_since_eval = 0
 
     trainer.save_checkpoint(tag="final")

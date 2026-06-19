@@ -133,6 +133,10 @@ class CRGame:
         self._next_eid: int = 0
         self._spawn_towers()
 
+        # Projectile system: list of in-flight projectiles
+        # Each: (source_owner, target_eid, x, y, speed, damage, is_splash, splash_radius, stuns, stun_duration)
+        self.projectiles: list[dict] = []
+
         # Game state
         self.tick_count: int = 0
         self.phase: GamePhase = GamePhase.REGULAR
@@ -323,6 +327,10 @@ class CRGame:
             hp = card_def.hp
             dps = card_def.dps
 
+        # Deploy stagger: each subsequent unit in a multi-spawn card appears
+        # slightly later (e.g., Goblins have 0.2s stagger, Minion Horde 0.1s)
+        deploy_stagger = 0.15 if count > 1 else 0.0  # default 150ms between spawns
+
         for i in range(count):
             if len(self.entities) >= MAX_ENTITIES:
                 break
@@ -338,6 +346,9 @@ class CRGame:
                 hp_override=hp if count > 1 else 0.0,
                 dps_override=dps if count > 1 else 0.0,
             )
+            # Apply deploy stagger: each subsequent unit has additional delay
+            e.deploy_timer += deploy_stagger * i
+            e.is_deployed = e.deploy_timer <= 0
             self.entities.append(e)
 
         # Invalidate flow cache if a building was placed
@@ -350,8 +361,67 @@ class CRGame:
         """Apply area-of-effect spell damage + secondary effects."""
         radius = card_def.attack_range
         damage = card_def.dps  # total damage stored in dps field for spells
+        ct = card_def.card_type
 
-        if card_def.card_type == CardType.LIGHTNING:
+        # --- Freeze: no damage, applies freeze timer ---
+        if ct == CardType.FREEZE:
+            for e in self.entities:
+                if e.alive and e.owner != player:
+                    if e.distance_to_pos(x, y) <= radius:
+                        e.freeze_timer = max(e.freeze_timer, 4.0)
+                        # Reset inferno on freeze
+                        if e.inferno_dps_max > 0:
+                            e.inferno_ramp_time = 0.0
+            return
+
+        # --- Rage: buff OWN troops with speed/attack boost ---
+        if ct == CardType.RAGE:
+            for e in self.entities:
+                if e.alive and e.owner == player:
+                    if e.distance_to_pos(x, y) <= radius:
+                        e.rage_timer = max(e.rage_timer, 7.5)
+            return
+
+        # --- Poison: DoT over 8 seconds ---
+        if ct == CardType.POISON:
+            for e in self.entities:
+                if e.alive and e.owner != player:
+                    if e.distance_to_pos(x, y) <= radius:
+                        e.poison_timer = 8.0
+                        e.poison_dps = damage / 8.0  # spread total over duration
+            return
+
+        # --- Tornado: pull enemies toward center ---
+        if ct == CardType.TORNADO:
+            for e in self.entities:
+                if e.alive and e.owner != player and not e.is_building:
+                    dist = e.distance_to_pos(x, y)
+                    if dist <= radius and dist > 0.1:
+                        # Pull toward center
+                        pull_strength = 2.0  # tiles per tick
+                        dx = x - e.x
+                        dy = y - e.y
+                        mag = math.sqrt(dx * dx + dy * dy)
+                        e.x += (dx / mag) * min(pull_strength * TICK_DURATION, dist)
+                        e.y += (dy / mag) * min(pull_strength * TICK_DURATION, dist)
+                        e.x = max(0.0, min(float(ARENA_W - 1), e.x))
+                        e.y = max(0.0, min(float(ARENA_H - 1), e.y))
+                        # Light damage
+                        if damage > 0:
+                            e.take_damage(damage * TICK_DURATION / 2.5)
+            return
+
+        # --- Heal Spirit / Heal: heal OWN troops ---
+        if ct == CardType.HEAL_SPIRIT:
+            for e in self.entities:
+                if e.alive and e.owner == player:
+                    if e.distance_to_pos(x, y) <= radius:
+                        heal_amount = damage  # stored as dps for heal
+                        e.hp = min(e.max_hp, e.hp + heal_amount)
+            return
+
+        # --- Lightning: hit 3 highest HP ---
+        if ct == CardType.LIGHTNING:
             enemies = [
                 e for e in self.entities
                 if e.alive and e.owner != player
@@ -361,6 +431,7 @@ class CRGame:
             for e in enemies[:3]:
                 e.take_damage(damage)
         else:
+            # Standard damage spell (Fireball, Arrows, Rocket, etc.)
             for e in self.entities:
                 if e.alive and e.owner != player:
                     if e.distance_to_pos(x, y) <= radius:
@@ -408,18 +479,26 @@ class CRGame:
         return False
 
     def _find_target(self, entity: Entity) -> int:
-        """Find the best target eid for an entity. Returns -1 if none."""
+        """Find the best target eid for an entity. Returns -1 if none.
+        
+        Uses sight_range for initial target acquisition (aggro).
+        Once a target is acquired, uses attack_range for actual combat.
+        Targeting priority: closest enemy within sight_range.
+        Building-targeting troops only see buildings/towers.
+        """
         if not entity.active:
             return -1
 
         best_eid = -1
         best_dist = float("inf")
+        # Use sight_range for target acquisition
+        max_range = entity.sight_range + entity.collision_radius
 
         for other in self.entities:
             if not other.alive or other.owner == entity.owner:
                 continue
 
-            # Target filtering
+            # Target filtering by target_mode
             if entity.target_mode == TargetMode.BUILDINGS:
                 if not other.is_building and not other.is_tower:
                     continue
@@ -436,7 +515,11 @@ class CRGame:
             if not other.is_deployed:
                 continue
 
-            dist = entity.distance_to(other)
+            # Distance calculation accounts for collision radii
+            dist = entity.distance_to(other) - other.collision_radius
+            if dist > max_range:
+                continue
+
             if dist < best_dist:
                 best_dist = dist
                 best_eid = other.eid
@@ -453,14 +536,70 @@ class CRGame:
     # Movement
     # ------------------------------------------------------------------
 
+    def _move_toward(self, entity: Entity, tx: float, ty: float, step: float) -> None:
+        """Move entity toward (tx, ty) by step tiles, respecting river/bridges."""
+        if entity.is_flying:
+            dx, dy = direction_to_target(entity.x, entity.y, tx, ty)
+            entity.x += dx * step
+            entity.y += dy * step
+        else:
+            need_cross = (
+                (entity.owner == 0 and ty > RIVER_ROW_HI)
+                or (entity.owner == 1 and ty < RIVER_ROW_LO)
+            )
+            if need_cross and RIVER_ROW_LO <= int(entity.y + 0.5) <= RIVER_ROW_HI + 1:
+                bridge_targets = [
+                    (BRIDGE_LEFT_COLS[0], RIVER_ROW_LO if entity.owner == 0 else RIVER_ROW_HI),
+                    (BRIDGE_RIGHT_COLS[0], RIVER_ROW_LO if entity.owner == 0 else RIVER_ROW_HI),
+                ]
+                nearest_bridge = min(
+                    bridge_targets,
+                    key=lambda b: abs(entity.x - b[0]),
+                )
+                dx, dy = direction_to_target(
+                    entity.x, entity.y,
+                    float(nearest_bridge[0]), float(nearest_bridge[1]),
+                )
+            else:
+                dx, dy = direction_to_target(entity.x, entity.y, tx, ty)
+            entity.x += dx * step
+            entity.y += dy * step
+        entity.x = max(0.0, min(float(ARENA_W - 1), entity.x))
+        entity.y = max(0.0, min(float(ARENA_H - 1), entity.y))
+
     def _move_entity(self, entity: Entity) -> None:
-        """Move entity toward its target, with charge support."""
+        """Move entity toward its target, with charge support.
+        
+        If no target is in sight_range, the unit moves toward the closest
+        enemy tower (princess tower, then king tower). This is the default
+        pathing behavior in real CR.
+        """
         if not entity.active or entity.speed <= 0 or entity.is_building:
             return
 
         target = self._get_entity(entity.target_eid)
         if target is None:
+            # No target in sight_range: walk toward closest enemy tower
             entity.is_charging = False
+            enemy = 1 - entity.owner
+            # Find closest alive enemy tower
+            best_tower = None
+            best_dist = float("inf")
+            for pt in self.princess_towers[enemy]:
+                if pt.alive:
+                    d = entity.distance_to(pt)
+                    if d < best_dist:
+                        best_dist = d
+                        best_tower = pt
+            # If no princess towers, go for king
+            if best_tower is None and self.king_towers[enemy] and self.king_towers[enemy].alive:
+                best_tower = self.king_towers[enemy]
+            if best_tower is None:
+                return  # No valid destination
+            # Move toward tower
+            move_speed = entity.effective_speed
+            step = move_speed * TICK_DURATION
+            self._move_toward(entity, best_tower.x, best_tower.y, step)
             return
 
         dist = entity.distance_to(target)
@@ -480,47 +619,77 @@ class CRGame:
 
         move_speed = entity.effective_speed
         step = move_speed * TICK_DURATION
+        self._move_toward(entity, target.x, target.y, step)
 
-        if entity.is_flying:
-            dx, dy = direction_to_target(entity.x, entity.y, target.x, target.y)
-            entity.x += dx * step
-            entity.y += dy * step
-        else:
-            need_cross = (
-                (entity.owner == 0 and target.y > RIVER_ROW_HI)
-                or (entity.owner == 1 and target.y < RIVER_ROW_LO)
-            )
+    # ------------------------------------------------------------------
+    # Collision Resolution
+    # ------------------------------------------------------------------
 
-            if need_cross and RIVER_ROW_LO <= int(entity.y + 0.5) <= RIVER_ROW_HI + 1:
-                bridge_targets = [
-                    (BRIDGE_LEFT_COLS[0], RIVER_ROW_LO if entity.owner == 0 else RIVER_ROW_HI),
-                    (BRIDGE_RIGHT_COLS[0], RIVER_ROW_LO if entity.owner == 0 else RIVER_ROW_HI),
-                ]
-                nearest_bridge = min(
-                    bridge_targets,
-                    key=lambda b: abs(entity.x - b[0]),
-                )
-                dx, dy = direction_to_target(
-                    entity.x, entity.y,
-                    float(nearest_bridge[0]), float(nearest_bridge[1]),
-                )
-            else:
-                dx, dy = direction_to_target(
-                    entity.x, entity.y, target.x, target.y,
-                )
-
-            entity.x += dx * step
-            entity.y += dy * step
-
-        entity.x = max(0.0, min(float(ARENA_W - 1), entity.x))
-        entity.y = max(0.0, min(float(ARENA_H - 1), entity.y))
+    def _resolve_collisions(self) -> None:
+        """Push overlapping units apart based on mass differential.
+        
+        In real CR, units with higher mass push lighter units when they collide.
+        The push is proportional to the mass ratio. Flying units don't collide
+        with ground units.
+        """
+        active_entities = [
+            e for e in self.entities
+            if e.alive and e.is_deployed and e.speed > 0 and not e.is_building
+        ]
+        n = len(active_entities)
+        for i in range(n):
+            a = active_entities[i]
+            for j in range(i + 1, n):
+                b = active_entities[j]
+                # Skip if one is flying and the other isn't
+                if a.is_flying != b.is_flying:
+                    continue
+                # Check overlap
+                min_dist = a.collision_radius + b.collision_radius
+                dx = b.x - a.x
+                dy = b.y - a.y
+                dist_sq = dx * dx + dy * dy
+                if dist_sq >= min_dist * min_dist:
+                    continue
+                if dist_sq < 0.001:
+                    # Exact overlap: nudge apart
+                    dx, dy = 0.1, 0.1
+                    dist_sq = 0.02
+                dist = math.sqrt(dist_sq)
+                overlap = min_dist - dist
+                # Push proportional to mass ratio
+                total_mass = a.mass + b.mass
+                if total_mass <= 0:
+                    continue
+                push_a = overlap * (b.mass / total_mass)
+                push_b = overlap * (a.mass / total_mass)
+                # Normalize direction
+                nx, ny = dx / dist, dy / dist
+                a.x -= nx * push_a
+                a.y -= ny * push_a
+                b.x += nx * push_b
+                b.y += ny * push_b
+                # Clamp to arena
+                a.x = max(0.0, min(float(ARENA_W - 1), a.x))
+                a.y = max(0.0, min(float(ARENA_H - 1), a.y))
+                b.x = max(0.0, min(float(ARENA_W - 1), b.x))
+                b.y = max(0.0, min(float(ARENA_H - 1), b.y))
 
     # ------------------------------------------------------------------
     # Combat
     # ------------------------------------------------------------------
 
     def _process_combat(self, entity: Entity) -> None:
-        """Handle attack logic for a single entity."""
+        """Handle attack logic for a single entity.
+        
+        Mechanics:
+        - Load Time: troops pre-load their attack while moving toward target.
+          When they enter attack_range, the pre-loaded time is subtracted from
+          the attack timer (so first hit comes faster).
+        - Projectile Travel: ranged units fire projectiles that travel at a 
+          specific speed. The damage is delayed until impact.
+        - Rage: speeds up attack timer countdown by 1.4x.
+        """
         if not entity.active or entity.attack_interval <= 0:
             return
 
@@ -528,11 +697,31 @@ class CRGame:
         if target is None or not target.alive:
             return
 
+        # Use attack_range + collision radii for actual attack distance
+        effective_range = entity.attack_range + entity.collision_radius + target.collision_radius
         dist = entity.distance_to(target)
-        if dist > entity.attack_range + 0.5:
+        
+        if dist > effective_range:
+            # Not in range: accumulate load_time if moving toward target
+            if entity.load_time > 0 and entity.load_progress < entity.load_time:
+                entity.load_progress += TICK_DURATION
+                if entity.load_progress > entity.load_time:
+                    entity.load_progress = entity.load_time
             return
 
-        entity.attack_timer -= TICK_DURATION
+        # First time entering range: apply load_time reduction to attack_timer
+        if entity.load_progress > 0:
+            entity.attack_timer -= entity.load_progress
+            entity.load_progress = 0.0
+            if entity.attack_timer < 0:
+                entity.attack_timer = 0.0
+
+        # Rage speeds up attack interval (1.4x attack speed = timer decreases 1.4x faster)
+        tick_dt = TICK_DURATION
+        if entity.rage_timer > 0:
+            tick_dt *= entity.rage_speed_mult
+
+        entity.attack_timer -= tick_dt
         if entity.attack_timer <= 0:
             # Compute damage
             if entity.inferno_dps_max > 0:
@@ -545,30 +734,94 @@ class CRGame:
                 dmg = current_dps * entity.attack_interval
             else:
                 dmg = entity.damage_per_hit
+                # Charge hit deals 2× damage (Prince, Dark Prince, Ram Rider, etc.)
+                if entity.next_hit_is_charge:
+                    dmg *= 2.0
 
-            # Apply stun effect from attacker
             card_def = CARD_DEFS.get(entity.card_type)
-            if card_def and card_def.stuns and card_def.stun_duration > 0:
-                target.apply_stun(card_def.stun_duration)
+            stuns = card_def.stuns if card_def else False
+            stun_dur = card_def.stun_duration if card_def else 0.0
+            resets = card_def.resets_inferno if card_def else False
 
-            # Reset inferno if attacker resets
-            if card_def and card_def.resets_inferno and target.inferno_dps_max > 0:
-                target.inferno_ramp_time = 0.0
-
-            if entity.is_splash and entity.splash_radius > 0:
-                for other in self.entities:
-                    if (
-                        other.alive
-                        and other.owner != entity.owner
-                        and other.distance_to(target) <= entity.splash_radius
-                    ):
-                        other.take_damage(dmg)
+            # If unit has projectile speed > 0, fire a projectile instead of instant damage
+            if entity.has_projectile and entity.projectile_speed > 0:
+                self.projectiles.append({
+                    'x': entity.x,
+                    'y': entity.y,
+                    'target_eid': target.eid,
+                    'target_x': target.x,
+                    'target_y': target.y,
+                    'speed': entity.projectile_speed,
+                    'damage': dmg,
+                    'is_splash': entity.is_splash,
+                    'splash_radius': entity.splash_radius,
+                    'owner': entity.owner,
+                    'stuns': stuns,
+                    'stun_duration': stun_dur,
+                    'resets_inferno': resets,
+                })
             else:
-                target.take_damage(dmg)
+                # Melee / instant: deal damage immediately
+                if stuns and stun_dur > 0:
+                    target.apply_stun(stun_dur)
+                if resets and target.inferno_dps_max > 0:
+                    target.inferno_ramp_time = 0.0
+
+                if entity.is_splash and entity.splash_radius > 0:
+                    for other in self.entities:
+                        if (
+                            other.alive
+                            and other.owner != entity.owner
+                            and other.distance_to(target) <= entity.splash_radius
+                        ):
+                            other.take_damage(dmg)
+                else:
+                    target.take_damage(dmg)
 
             # Clear charge flag after hit
             entity.next_hit_is_charge = False
             entity.attack_timer = entity.attack_interval
+
+    def _update_projectiles(self) -> None:
+        """Advance all in-flight projectiles. Deal damage on impact."""
+        surviving = []
+        for proj in self.projectiles:
+            target = self._get_entity(proj['target_eid'])
+            if target is None or not target.alive:
+                # Target died mid-flight: projectile disappears (wasted shot)
+                continue
+
+            # Move projectile toward target's current position (homing)
+            dx = target.x - proj['x']
+            dy = target.y - proj['y']
+            dist = math.sqrt(dx * dx + dy * dy)
+            travel = proj['speed'] * TICK_DURATION
+
+            if dist <= travel:
+                # Impact!
+                dmg = proj['damage']
+                if proj['stuns'] and proj['stun_duration'] > 0:
+                    target.apply_stun(proj['stun_duration'])
+                if proj['resets_inferno'] and target.inferno_dps_max > 0:
+                    target.inferno_ramp_time = 0.0
+
+                if proj['is_splash'] and proj['splash_radius'] > 0:
+                    for other in self.entities:
+                        if (
+                            other.alive
+                            and other.owner != proj['owner']
+                            and other.distance_to(target) <= proj['splash_radius']
+                        ):
+                            other.take_damage(dmg)
+                else:
+                    target.take_damage(dmg)
+            else:
+                # Still in flight
+                proj['x'] += (dx / dist) * travel
+                proj['y'] += (dy / dist) * travel
+                surviving.append(proj)
+
+        self.projectiles = surviving
 
     # ------------------------------------------------------------------
     # Building decay & spawners
@@ -688,7 +941,7 @@ class CRGame:
     # ------------------------------------------------------------------
 
     def _tick_timers(self) -> None:
-        """Decrement per-entity timers: deploy, stun, slow."""
+        """Decrement per-entity timers: deploy, stun, slow, freeze, rage, poison."""
         for e in self.entities:
             if not e.alive:
                 continue
@@ -708,13 +961,49 @@ class CRGame:
                 e.slow_timer -= TICK_DURATION
                 if e.slow_timer < 0:
                     e.slow_timer = 0.0
+            # Freeze timer (freeze resets load_progress and inferno ramp)
+            if e.freeze_timer > 0:
+                e.freeze_timer -= TICK_DURATION
+                if e.freeze_timer < 0:
+                    e.freeze_timer = 0.0
+                    # When freeze ends, load_progress is reset (first hit delay restarts)
+                    e.load_progress = 0.0
+            # Rage timer
+            if e.rage_timer > 0:
+                e.rage_timer -= TICK_DURATION
+                if e.rage_timer < 0:
+                    e.rage_timer = 0.0
+            # Poison DoT
+            if e.poison_timer > 0:
+                poison_dmg = e.poison_dps * TICK_DURATION
+                e.take_damage(poison_dmg)
+                e.poison_timer -= TICK_DURATION
+                if e.poison_timer < 0:
+                    e.poison_timer = 0.0
+                    e.poison_dps = 0.0
 
     def _process_death_spawns(self) -> None:
-        """Spawn units from dying entities (Golem→Golemites, etc.)."""
+        """Handle death effects: death damage + spawn units (Golem→Golemites, etc.)."""
         new_entities: list[Entity] = []
         for e in self.entities:
             if e.alive or e.is_tower:
                 continue
+
+            # Death damage (Giant Skeleton bomb, Balloon bomb, Golem explosion, etc.)
+            card_def = CARD_DEFS.get(e.card_type)
+            if card_def and card_def.tower_damage > 0 and card_def.kind == EntityKind.TROOP:
+                # tower_damage field stores death damage for these cards
+                death_dmg = card_def.tower_damage
+                death_radius = card_def.splash_radius if card_def.splash_radius > 0 else 2.5
+                for other in self.entities:
+                    if other.alive and other.owner != e.owner:
+                        if other.distance_to(e) <= death_radius:
+                            # Death damage is reduced for towers (35%)
+                            if other.is_tower:
+                                other.take_damage(death_dmg * 0.35)
+                            else:
+                                other.take_damage(death_dmg)
+
             if e.death_spawn_count > 0 and e.death_spawn_hp > 0:
                 for i in range(e.death_spawn_count):
                     if len(self.entities) + len(new_entities) >= MAX_ENTITIES:
@@ -772,12 +1061,12 @@ class CRGame:
                 e.inferno_ramp_time = 0.0
 
     def step(self, actions: list[Action]) -> None:
-        """Advance the game by one tick (0.5 s).
+        """Advance the game by one tick (50ms = 0.05s).
 
         Parameters
         ----------
         actions : list[Action]
-            One action per player (len == 2).
+            One action per player (or empty for no actions this tick).
         """
         if self.phase == GamePhase.ENDED:
             return
@@ -806,10 +1095,16 @@ class CRGame:
                 continue
             self._move_entity(entity)
 
+        # 5b. Resolve collisions (push mechanics based on mass)
+        self._resolve_collisions()
+
         for entity in self.entities:
             if not entity.alive:
                 continue
             self._process_combat(entity)
+
+        # 5c. Update in-flight projectiles
+        self._update_projectiles()
 
         # 6. Process death spawns before removing dead entities
         self._process_death_spawns()

@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::arena::*;
 use crate::combat;
-use crate::data::{CharacterData, GameData};
+use crate::data::{scale_stat, CharacterData, GameData};
 use crate::entity::*;
 use crate::movement;
 use crate::spells;
@@ -113,9 +113,15 @@ impl BattleEngine {
         engine
     }
 
-    /// Load game data from a directory
+    /// Load game data from a directory at Level 1 (raw stats).
     pub fn from_data_dir(data_dir: &Path, deck0: Vec<String>, deck1: Vec<String>) -> Result<Self, String> {
         let game_data = GameData::load(data_dir)?;
+        Ok(Self::new(game_data, deck0, deck1))
+    }
+
+    /// Load game data from a directory scaled to a target level.
+    pub fn from_data_dir_at_level(data_dir: &Path, deck0: Vec<String>, deck1: Vec<String>, level: i32) -> Result<Self, String> {
+        let game_data = GameData::load_at_level(data_dir, level)?;
         Ok(Self::new(game_data, deck0, deck1))
     }
 
@@ -126,14 +132,29 @@ impl BattleEngine {
     }
 
     fn create_towers(&mut self) {
+        // Towers have their own stat table, not the same as troop scaling.
+        // We store the known Level 11 (Tournament Standard) values directly.
+        // Source: Clash Royale wiki, verified against game client.
+        let (king_hp, king_dmg, princess_hp, princess_dmg) = match self.game_data.level {
+            11 => (4008, 109, 2534, 109),
+            14 => (5544, 152, 3514, 152),
+            1  => (2400, 50, 1400, 50),
+            _  => {
+                // Approximate: interpolate between L1 and L14
+                let t = (self.game_data.level - 1).max(0) as f64 / 13.0;
+                let interp = |lo: i32, hi: i32| -> i32 { (lo as f64 + t * (hi - lo) as f64).round() as i32 };
+                (interp(2400, 5544), interp(50, 152), interp(1400, 3514), interp(50, 152))
+            }
+        };
+
         // Player 0 towers (bottom)
-        let t0k = Self::make_tower_static(&mut self.next_entity_id, 0, TowerType::King, Pos::new(P0_KING_X, P0_KING_Y), 2400, 960, 7000);
-        let t0l = Self::make_tower_static(&mut self.next_entity_id, 0, TowerType::LeftPrincess, Pos::new(P0_LEFT_PRINCESS_X, P0_LEFT_PRINCESS_Y), 1400, 560, 7500);
-        let t0r = Self::make_tower_static(&mut self.next_entity_id, 0, TowerType::RightPrincess, Pos::new(P0_RIGHT_PRINCESS_X, P0_RIGHT_PRINCESS_Y), 1400, 560, 7500);
+        let t0k = Self::make_tower_static(&mut self.next_entity_id, 0, TowerType::King, Pos::new(P0_KING_X, P0_KING_Y), king_hp, king_dmg, 7000);
+        let t0l = Self::make_tower_static(&mut self.next_entity_id, 0, TowerType::LeftPrincess, Pos::new(P0_LEFT_PRINCESS_X, P0_LEFT_PRINCESS_Y), princess_hp, princess_dmg, 7500);
+        let t0r = Self::make_tower_static(&mut self.next_entity_id, 0, TowerType::RightPrincess, Pos::new(P0_RIGHT_PRINCESS_X, P0_RIGHT_PRINCESS_Y), princess_hp, princess_dmg, 7500);
         // Player 1 towers (top)
-        let t1k = Self::make_tower_static(&mut self.next_entity_id, 1, TowerType::King, Pos::new(P1_KING_X, P1_KING_Y), 2400, 960, 7000);
-        let t1l = Self::make_tower_static(&mut self.next_entity_id, 1, TowerType::LeftPrincess, Pos::new(P1_LEFT_PRINCESS_X, P1_LEFT_PRINCESS_Y), 1400, 560, 7500);
-        let t1r = Self::make_tower_static(&mut self.next_entity_id, 1, TowerType::RightPrincess, Pos::new(P1_RIGHT_PRINCESS_X, P1_RIGHT_PRINCESS_Y), 1400, 560, 7500);
+        let t1k = Self::make_tower_static(&mut self.next_entity_id, 1, TowerType::King, Pos::new(P1_KING_X, P1_KING_Y), king_hp, king_dmg, 7000);
+        let t1l = Self::make_tower_static(&mut self.next_entity_id, 1, TowerType::LeftPrincess, Pos::new(P1_LEFT_PRINCESS_X, P1_LEFT_PRINCESS_Y), princess_hp, princess_dmg, 7500);
+        let t1r = Self::make_tower_static(&mut self.next_entity_id, 1, TowerType::RightPrincess, Pos::new(P1_RIGHT_PRINCESS_X, P1_RIGHT_PRINCESS_Y), princess_hp, princess_dmg, 7500);
         self.buildings.extend([t0k, t0l, t0r, t1k, t1l, t1r]);
     }
 
