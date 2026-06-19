@@ -151,6 +151,10 @@ _CARD_TO_RUST: dict[CardType, str] = {
     CardType.GOBLIN_CURSE: "GoblinCurse",
     CardType.SPIRIT_EMPRESS: "SpiritEmpress",
     CardType.VINES: "Vines",
+    CardType.GOBLIN_BRAWLER: "GoblinBrawler",
+    CardType.BUSH_GOBLINS: "BushGoblins",
+    CardType.CURSED_HOG: "CursedHog",
+    CardType.GUARDIENNE: "Guardienne",
 }
 
 # Reverse mapping: Rust name → CardType
