@@ -12,6 +12,7 @@ Each entry stores:
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass
 
@@ -24,6 +25,8 @@ from crsim.constants import (
     SCALAR_FEATURES,
     SPATIAL_CHANNELS,
 )
+
+logger = logging.getLogger(__name__)
 
 ENTITY_SLOTS = 64
 ENTITY_DIM = 40
@@ -49,45 +52,68 @@ class ReplayEntry:
 class ReplayBuffer:
     """Thread-safe ring buffer with entity features and aux targets."""
 
+    # Large per-position tensors are stored in float16 to halve memory. A single
+    # spatial observation is SPATIAL_CHANNELS * ARENA_H * ARENA_W floats, which
+    # for 125 cards is 254*32*18 = ~146K values. At 500K positions that is ~292GB
+    # in float32 — far beyond any machine — so the default capacity is modest and
+    # the per-position memory cost is logged. Reduce SPATIAL_CHANNELS (e.g. with
+    # semantic unit planes instead of one plane per card type) for larger buffers.
     def __init__(
         self,
-        capacity: int = 500_000,
+        capacity: int = 50_000,
         max_size: int | None = None,
     ) -> None:
         self.capacity = max_size or capacity
 
-        # Pre-allocate arrays for zero-copy storage
-        cap = self.capacity
-        self._spatial = np.zeros(
-            (cap, SPATIAL_CHANNELS, ARENA_H, ARENA_W), dtype=np.float32
+        # Per-position memory estimate (float16 for the big arrays).
+        bytes_per_pos = (
+            SPATIAL_CHANNELS * ARENA_H * ARENA_W * 2          # spatial f16
+            + ENTITY_SLOTS * ENTITY_DIM * 2                    # entity f16
+            + SCALAR_FEATURES * 4 + ACTION_SPACE_SIZE * 4      # scalar/policy f32
         )
-        self._scalar = np.zeros(
-            (cap, SCALAR_FEATURES), dtype=np.float32
-        )
-        self._policy = np.zeros(
-            (cap, ACTION_SPACE_SIZE), dtype=np.float32
-        )
-        self._value = np.zeros(cap, dtype=np.float32)
-
-        # Entity features
-        self._entity_features = np.zeros(
-            (cap, ENTITY_SLOTS, ENTITY_DIM), dtype=np.float32
-        )
-        self._entity_mask = np.zeros(
-            (cap, ENTITY_SLOTS), dtype=bool
+        est_gb = bytes_per_pos * self.capacity / 1e9
+        logger.info(
+            "ReplayBuffer capacity=%d, ~%.1f KB/position, ~%.1f GB total",
+            self.capacity, bytes_per_pos / 1024, est_gb,
         )
 
-        # Auxiliary targets
-        self._crown_target = np.full(cap, 3, dtype=np.int64)
-        self._tower_hp_target = np.zeros((cap, 6), dtype=np.float32)
-        self._game_length_target = np.full(cap, 0.5, dtype=np.float32)
-
-        # Priorities for PER
-        self._priority = np.ones(cap, dtype=np.float32)
+        # Arrays are allocated lazily on first push so that constructing a buffer
+        # never blocks/OOMs and tests can use tiny capacities cheaply.
+        self._allocated = False
+        self._spatial: np.ndarray | None = None
+        self._scalar: np.ndarray | None = None
+        self._policy: np.ndarray | None = None
+        self._value: np.ndarray | None = None
+        self._entity_features: np.ndarray | None = None
+        self._entity_mask: np.ndarray | None = None
+        self._crown_target: np.ndarray | None = None
+        self._tower_hp_target: np.ndarray | None = None
+        self._game_length_target: np.ndarray | None = None
+        self._priority: np.ndarray | None = None
 
         self._size: int = 0
         self._write_idx: int = 0
         self._lock = threading.Lock()
+
+    def _ensure_allocated(self) -> None:
+        if self._allocated:
+            return
+        cap = self.capacity
+        self._spatial = np.zeros(
+            (cap, SPATIAL_CHANNELS, ARENA_H, ARENA_W), dtype=np.float16
+        )
+        self._scalar = np.zeros((cap, SCALAR_FEATURES), dtype=np.float32)
+        self._policy = np.zeros((cap, ACTION_SPACE_SIZE), dtype=np.float32)
+        self._value = np.zeros(cap, dtype=np.float32)
+        self._entity_features = np.zeros(
+            (cap, ENTITY_SLOTS, ENTITY_DIM), dtype=np.float16
+        )
+        self._entity_mask = np.zeros((cap, ENTITY_SLOTS), dtype=bool)
+        self._crown_target = np.full(cap, 3, dtype=np.int64)
+        self._tower_hp_target = np.zeros((cap, 6), dtype=np.float32)
+        self._game_length_target = np.full(cap, 0.5, dtype=np.float32)
+        self._priority = np.ones(cap, dtype=np.float32)
+        self._allocated = True
 
     def __len__(self) -> int:
         return self._size
@@ -95,6 +121,7 @@ class ReplayBuffer:
     def push(self, entry: ReplayEntry) -> None:
         """Add a single experience entry."""
         with self._lock:
+            self._ensure_allocated()
             idx = self._write_idx
             self._spatial[idx] = entry.spatial
             self._scalar[idx] = entry.scalar
@@ -125,6 +152,7 @@ class ReplayBuffer:
         """Add a batch of entries efficiently (legacy API)."""
         bsz = spatials.shape[0]
         with self._lock:
+            self._ensure_allocated()
             for i in range(bsz):
                 idx = self._write_idx
                 self._spatial[idx] = spatials[i]
@@ -144,7 +172,7 @@ class ReplayBuffer:
         with self._lock:
             indices = np.random.randint(0, self._size, size=batch_size)
             return (
-                self._spatial[indices].copy(),
+                self._spatial[indices].astype(np.float32),
                 self._scalar[indices].copy(),
                 self._policy[indices].copy(),
                 self._value[indices].copy(),
@@ -160,11 +188,11 @@ class ReplayBuffer:
         with self._lock:
             indices = np.random.randint(0, self._size, size=batch_size)
             return {
-                "spatial": self._spatial[indices].copy(),
+                "spatial": self._spatial[indices].astype(np.float32),
                 "scalar": self._scalar[indices].copy(),
                 "policy": self._policy[indices].copy(),
                 "value": self._value[indices].copy(),
-                "entity_features": self._entity_features[indices].copy(),
+                "entity_features": self._entity_features[indices].astype(np.float32),
                 "entity_mask": self._entity_mask[indices].copy(),
                 "crown_target": self._crown_target[indices].copy(),
                 "tower_hp_target": self._tower_hp_target[indices].copy(),
@@ -186,11 +214,11 @@ class ReplayBuffer:
             weights = (self._size * probs[indices]) ** (-0.4)
             weights /= weights.max()
             batch = {
-                "spatial": self._spatial[indices].copy(),
+                "spatial": self._spatial[indices].astype(np.float32),
                 "scalar": self._scalar[indices].copy(),
                 "policy": self._policy[indices].copy(),
                 "value": self._value[indices].copy(),
-                "entity_features": self._entity_features[indices].copy(),
+                "entity_features": self._entity_features[indices].astype(np.float32),
                 "entity_mask": self._entity_mask[indices].copy(),
                 "crown_target": self._crown_target[indices].copy(),
                 "tower_hp_target": self._tower_hp_target[indices].copy(),

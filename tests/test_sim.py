@@ -110,10 +110,13 @@ def test_card_placement():
 
 
 def test_game_runs_to_completion():
-    """A game with random actions eventually ends."""
+    """A game with random actions always terminates within the time limit."""
+    from crsim.constants import TOTAL_MAX_TICKS
+
     game = CRGame(seed=5)
     rng = np.random.default_rng(5)
-    max_ticks = 2000
+    # Step a few ticks beyond the hard time limit; the game must have ended.
+    max_ticks = TOTAL_MAX_TICKS + 10
 
     for _ in range(max_ticks):
         if game.done:
@@ -136,10 +139,10 @@ def test_game_runs_to_completion():
 
         game.step(actions)
 
-    # Game should have ended (or at least progressed significantly)
-    assert game.tick_count > 0
-    if game.tick_count >= 1080:  # max ticks
-        assert game.done
+    # By the hard time limit the game must have ended with a definite result.
+    assert game.done
+    assert game.tick_count <= TOTAL_MAX_TICKS
+    assert game.result != GameResult.IN_PROGRESS
 
 
 def test_clone():

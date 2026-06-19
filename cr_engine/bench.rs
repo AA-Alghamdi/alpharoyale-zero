@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::time::Instant;
 
-use cr_engine::data::GameData;
-use cr_engine::engine::{BattleEngine, Command};
+use cr_engine_native::data::GameData;
+use cr_engine_native::engine::{BattleEngine, Command};
 
 fn main() {
     let data = GameData::load(Path::new("gamedata")).unwrap();

@@ -24,7 +24,7 @@ from model.features import (
     extract_auxiliary_targets,
     extract_entity_features,
 )
-from training.curriculum import CurriculumManager, DeckSampler
+from training.curriculum import CurriculumManager
 from training.domain_randomization import DomainRandomizer
 from training.league import League
 from training.opponent_model import CardTracker, ElixirTracker
@@ -45,6 +45,16 @@ class SelfPlayV2Config:
     card_pool: list[CardType] = field(default_factory=lambda: list(CardType))
     # Data augmentation
     augment_flip: bool = True  # randomly flip player perspective
+    # Decision cadence: run MCTS search once every N game ticks instead of every
+    # tick. The simulator still advances every 50ms tick (so combat resolves
+    # normally), but the agent only makes a placement decision every
+    # decision_interval_ticks. Real Clash Royale bots act at ~5 decisions/sec;
+    # searching all 20 ticks/sec is both unrealistic and ~N times more expensive.
+    decision_interval_ticks: int = 8
+    # Optional hard cap on simulated ticks per game (None = use real time limit).
+    # Useful for fast CPU smoke tests; the terminal value is taken from the
+    # game's reward at the truncation point.
+    max_ticks: int | None = None
 
 
 def random_deck(
@@ -156,9 +166,27 @@ class SelfPlayWorkerV2:
         # Collect full trajectory with entity features + aux targets
         trajectory: list[dict] = []
         move_count = 0
+        decision_interval = max(1, cfg.decision_interval_ticks)
 
         while not game.done:
-            actions_for_step: list[Action] = []
+            # Truncation for fast smoke runs.
+            if cfg.max_ticks is not None and game.tick_count >= cfg.max_ticks:
+                break
+
+            # Only run search (and record a training position) on decision
+            # ticks; otherwise advance the simulator with WAIT so combat still
+            # resolves every tick. This is the difference between ~14k searches
+            # per game and a tractable number.
+            is_decision_tick = (game.tick_count % decision_interval) == 0
+
+            if not is_decision_tick:
+                game.step([
+                    Action(player=0, hand_slot=-1),
+                    Action(player=1, hand_slot=-1),
+                ])
+                continue
+
+            actions_for_step = []
 
             for player in (0, 1):
                 # Temperature schedule
