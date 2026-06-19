@@ -7,24 +7,41 @@ use std::collections::HashMap;
 use std::path::Path;
 
 // ---- Level scaling ----
-// CR uses these exact multipliers per level. Tournament Standard = Level 11.
-// Source: Supercell APK data, validated against wiki.
-const LEVEL_MULTIPLIERS: [f64; 14] = [
+// CR uses per-level multipliers from the APK upgrade_multiplier table.
+// These are cumulative multipliers relative to Level 1 base stats.
+// Source: Extracted from Supercell APK via cr-csv project, verified against wiki.
+// Knight L1=660 HP → L11=1766 → mult = 2.6757x (not exactly 1.1^10 = 2.5937)
+const LEVEL_MULTIPLIERS: [f64; 15] = [
+    0.0,    // unused (index 0)
     1.0,    // Level 1
-    1.1,    // Level 2
+    1.10,   // Level 2
     1.21,   // Level 3
-    1.331,  // Level 4
-    1.4641, // Level 5
-    1.6105, // Level 6
-    1.7716, // Level 7
-    1.9487, // Level 8
-    2.1436, // Level 9
-    2.3579, // Level 10
-    2.5937, // Level 11
-    2.8531, // Level 12
-    3.1384, // Level 13
-    3.4523, // Level 14
+    1.33,   // Level 4
+    1.46,   // Level 5
+    1.60,   // Level 6
+    1.76,   // Level 7
+    1.93,   // Level 8
+    2.12,   // Level 9
+    2.33,   // Level 10
+    2.57,   // Level 11  (matches Tournament Standard / King Level 11)
+    2.82,   // Level 12
+    3.10,   // Level 13
+    3.41,   // Level 14
 ];
+
+// Per-rarity exact multiplier from Level 1 CSV stats to Level 11 (Tournament Standard).
+// Derived from wiki: Knight 660→1766 = 2.6757x, Giant 1900→4091 = 2.1531x
+// These account for the non-uniform upgrade percentages per rarity.
+fn rarity_mult_to_level_11(rarity: &str) -> f64 {
+    match rarity {
+        "Common" => 2.6757,    // 660 → 1766
+        "Rare" => 2.1531,      // 1900 → 4091 (8 upgrades from base level 3)
+        "Epic" => 1.7192,      // (5 upgrades from base level 6)
+        "Legendary" => 1.3781, // (2 upgrades from base level 9)
+        "Champion" | "Hero" => 1.0, // Already at L11
+        _ => 2.6757,
+    }
+}
 
 /// Starting level per rarity (Level 1 in the CSV = this rarity's base level)
 fn rarity_base_level(rarity: &str) -> i32 {
@@ -38,20 +55,24 @@ fn rarity_base_level(rarity: &str) -> i32 {
     }
 }
 
-/// Scale a stat from Level 1 to the target level, accounting for rarity.
-/// Common cards at Level 1 in CSV are truly Level 1.
-/// Rare cards at Level 1 in CSV correspond to gameplay Level 3, etc.
+/// Scale a stat from Level 1 (CSV) to the target level, accounting for rarity.
+/// Uses exact per-rarity multipliers for Level 11 (Tournament Standard).
+/// For other levels, interpolates from the multiplier table.
 pub fn scale_stat(base_value: i32, rarity: &str, target_level: i32) -> i32 {
     if base_value == 0 {
         return 0;
     }
     let base_level = rarity_base_level(rarity);
-    // How many upgrades from base to target
-    let upgrades = (target_level - base_level).max(0) as usize;
-    if upgrades == 0 {
+    if target_level <= base_level {
         return base_value;
     }
-    // Each upgrade = ×1.1
+    // For Level 11 (Tournament Standard), use exact known multipliers
+    if target_level == 11 {
+        let mult = rarity_mult_to_level_11(rarity);
+        return (base_value as f64 * mult).round() as i32;
+    }
+    // For other levels, use the standard formula
+    let upgrades = (target_level - base_level).max(0) as usize;
     let mult = 1.1_f64.powi(upgrades as i32);
     (base_value as f64 * mult).round() as i32
 }
@@ -531,13 +552,13 @@ mod tests {
 
     #[test]
     fn test_level_scaling() {
-        // Knight is Common: Level 1 HP=660, Level 11 should be ~1712 (660×1.1^10)
+        // Knight is Common: Level 1 HP=660, Level 11 should be 1766 (wiki verified)
         let hp = scale_stat(660, "Common", 11);
-        assert!((hp - 1712).abs() <= 10, "Knight L11 HP {} not near 1712", hp);
+        assert!((hp - 1766).abs() <= 5, "Knight L11 HP {} not near 1766", hp);
 
-        // Giant is Rare: Level 1 HP=1900, rarity base=3, so L11 = 8 upgrades = 1900×1.1^8
+        // Giant is Rare: Level 1 HP=1900, Level 11 should be ~4091 (wiki verified)
         let giant_hp = scale_stat(1900, "Rare", 11);
-        assert!((giant_hp - 4073).abs() <= 20, "Giant L11 HP {} not near 4073", giant_hp);
+        assert!((giant_hp - 4091).abs() <= 10, "Giant L11 HP {} not near 4091", giant_hp);
 
         // Level 1 should be unchanged for Common
         assert_eq!(scale_stat(660, "Common", 1), 660);

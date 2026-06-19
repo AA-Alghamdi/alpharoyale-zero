@@ -206,7 +206,17 @@ MAX_ENTITY_SLOTS = 64  # max entities we encode
 #   [19]     building_timer / 70.0
 #   [20]     elixir_cost / 10.0
 #   [21:23]  velocity direction estimate (dx, dy) — from target
-#   [23:40]  reserved / zero-padded
+#   [23]     is_evolved (has evolution ability active)
+#   [24]     is_hero (hero unit)
+#   [25]     is_champion (champion unit)
+#   [26]     shield_hp / max_shield (if shielded)
+#   [27]     freeze_timer / 4.0 (frozen status)
+#   [28]     rage_timer / 7.5 (raged status)
+#   [29]     poison_timer / 8.0 (poisoned)
+#   [30]     charge_ready (has charge ability and not on cooldown)
+#   [31]     stun_timer / 2.0
+#   [32]     load_progress / load_time (pre-attack readiness)
+#   [33:40]  reserved / zero-padded
 
 
 def extract_entity_features(
@@ -290,6 +300,38 @@ def extract_entity_features(
                 dy = -dy
             f[21] = dx
             f[22] = dy
+
+        # Evolution / Hero / Champion flags
+        card_def = CARD_DEFS.get(e.card_type)
+        if card_def is not None:
+            f[23] = 1.0 if getattr(card_def, 'is_evolution', False) else 0.0
+            f[24] = 1.0 if getattr(card_def, 'has_hero', False) else 0.0
+            f[25] = 1.0 if getattr(card_def, 'is_champion', False) else 0.0
+
+        # Shield status
+        if hasattr(e, 'shield_hp') and hasattr(e, 'max_shield_hp'):
+            if e.max_shield_hp > 0:
+                f[26] = e.shield_hp / e.max_shield_hp
+
+        # Status effect timers
+        if hasattr(e, 'freeze_timer'):
+            f[27] = min(e.freeze_timer / 4.0, 1.0)
+        if hasattr(e, 'rage_timer'):
+            f[28] = min(e.rage_timer / 7.5, 1.0)
+        if hasattr(e, 'poison_timer'):
+            f[29] = min(e.poison_timer / 8.0, 1.0)
+
+        # Charge readiness
+        if hasattr(e, 'charge_range') and e.charge_range > 0:
+            f[30] = 1.0 if not getattr(e, 'is_charging', False) else 0.0
+
+        # Stun timer
+        if hasattr(e, 'stun_timer'):
+            f[31] = min(e.stun_timer / 2.0, 1.0)
+
+        # Load progress (pre-attack readiness)
+        if hasattr(e, 'load_time') and e.load_time > 0:
+            f[32] = e.load_progress / e.load_time
 
         mask[i] = True
 

@@ -350,8 +350,67 @@ class CRGame:
         """Apply area-of-effect spell damage + secondary effects."""
         radius = card_def.attack_range
         damage = card_def.dps  # total damage stored in dps field for spells
+        ct = card_def.card_type
 
-        if card_def.card_type == CardType.LIGHTNING:
+        # --- Freeze: no damage, applies freeze timer ---
+        if ct == CardType.FREEZE:
+            for e in self.entities:
+                if e.alive and e.owner != player:
+                    if e.distance_to_pos(x, y) <= radius:
+                        e.freeze_timer = max(e.freeze_timer, 4.0)
+                        # Reset inferno on freeze
+                        if e.inferno_dps_max > 0:
+                            e.inferno_ramp_time = 0.0
+            return
+
+        # --- Rage: buff OWN troops with speed/attack boost ---
+        if ct == CardType.RAGE:
+            for e in self.entities:
+                if e.alive and e.owner == player:
+                    if e.distance_to_pos(x, y) <= radius:
+                        e.rage_timer = max(e.rage_timer, 7.5)
+            return
+
+        # --- Poison: DoT over 8 seconds ---
+        if ct == CardType.POISON:
+            for e in self.entities:
+                if e.alive and e.owner != player:
+                    if e.distance_to_pos(x, y) <= radius:
+                        e.poison_timer = 8.0
+                        e.poison_dps = damage / 8.0  # spread total over duration
+            return
+
+        # --- Tornado: pull enemies toward center ---
+        if ct == CardType.TORNADO:
+            for e in self.entities:
+                if e.alive and e.owner != player and not e.is_building:
+                    dist = e.distance_to_pos(x, y)
+                    if dist <= radius and dist > 0.1:
+                        # Pull toward center
+                        pull_strength = 2.0  # tiles per tick
+                        dx = x - e.x
+                        dy = y - e.y
+                        mag = math.sqrt(dx * dx + dy * dy)
+                        e.x += (dx / mag) * min(pull_strength * TICK_DURATION, dist)
+                        e.y += (dy / mag) * min(pull_strength * TICK_DURATION, dist)
+                        e.x = max(0.0, min(float(ARENA_W - 1), e.x))
+                        e.y = max(0.0, min(float(ARENA_H - 1), e.y))
+                        # Light damage
+                        if damage > 0:
+                            e.take_damage(damage * TICK_DURATION / 2.5)
+            return
+
+        # --- Heal Spirit / Heal: heal OWN troops ---
+        if ct == CardType.HEAL_SPIRIT:
+            for e in self.entities:
+                if e.alive and e.owner == player:
+                    if e.distance_to_pos(x, y) <= radius:
+                        heal_amount = damage  # stored as dps for heal
+                        e.hp = min(e.max_hp, e.hp + heal_amount)
+            return
+
+        # --- Lightning: hit 3 highest HP ---
+        if ct == CardType.LIGHTNING:
             enemies = [
                 e for e in self.entities
                 if e.alive and e.owner != player
@@ -361,6 +420,7 @@ class CRGame:
             for e in enemies[:3]:
                 e.take_damage(damage)
         else:
+            # Standard damage spell (Fireball, Arrows, Rocket, etc.)
             for e in self.entities:
                 if e.alive and e.owner != player:
                     if e.distance_to_pos(x, y) <= radius:
@@ -530,9 +590,26 @@ class CRGame:
 
         dist = entity.distance_to(target)
         if dist > entity.attack_range + 0.5:
+            # Not in range: accumulate load_time if moving toward target
+            if entity.load_time > 0 and entity.load_progress < entity.load_time:
+                entity.load_progress += TICK_DURATION
+                if entity.load_progress > entity.load_time:
+                    entity.load_progress = entity.load_time
             return
 
-        entity.attack_timer -= TICK_DURATION
+        # First time entering range: apply load_time reduction to attack_timer
+        if entity.load_progress > 0:
+            entity.attack_timer -= entity.load_progress
+            entity.load_progress = 0.0
+            if entity.attack_timer < 0:
+                entity.attack_timer = 0.0
+
+        # Rage speeds up attack interval
+        tick_dt = TICK_DURATION
+        if entity.rage_timer > 0:
+            tick_dt *= entity.rage_speed_mult
+
+        entity.attack_timer -= tick_dt
         if entity.attack_timer <= 0:
             # Compute damage
             if entity.inferno_dps_max > 0:
@@ -688,7 +765,7 @@ class CRGame:
     # ------------------------------------------------------------------
 
     def _tick_timers(self) -> None:
-        """Decrement per-entity timers: deploy, stun, slow."""
+        """Decrement per-entity timers: deploy, stun, slow, freeze, rage, poison."""
         for e in self.entities:
             if not e.alive:
                 continue
@@ -708,6 +785,24 @@ class CRGame:
                 e.slow_timer -= TICK_DURATION
                 if e.slow_timer < 0:
                     e.slow_timer = 0.0
+            # Freeze timer
+            if e.freeze_timer > 0:
+                e.freeze_timer -= TICK_DURATION
+                if e.freeze_timer < 0:
+                    e.freeze_timer = 0.0
+            # Rage timer
+            if e.rage_timer > 0:
+                e.rage_timer -= TICK_DURATION
+                if e.rage_timer < 0:
+                    e.rage_timer = 0.0
+            # Poison DoT
+            if e.poison_timer > 0:
+                poison_dmg = e.poison_dps * TICK_DURATION
+                e.take_damage(poison_dmg)
+                e.poison_timer -= TICK_DURATION
+                if e.poison_timer < 0:
+                    e.poison_timer = 0.0
+                    e.poison_dps = 0.0
 
     def _process_death_spawns(self) -> None:
         """Spawn units from dying entities (Golem→Golemites, etc.)."""

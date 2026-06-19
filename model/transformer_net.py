@@ -653,7 +653,8 @@ class CRStarNet(nn.Module):
         # Flat policy (for MCTS compatibility)
         policy_logits = self.flat_policy_head(core_out)
         if action_mask is not None:
-            policy_logits = policy_logits.masked_fill(~action_mask, -1e9)
+            action_mask_bool = action_mask.bool() if action_mask.dtype != torch.bool else action_mask
+            policy_logits = policy_logits.masked_fill(~action_mask_bool, -1e9)
 
         # Value
         value = self.value_head(core_out)

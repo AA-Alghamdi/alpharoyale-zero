@@ -199,6 +199,28 @@ class League:
             return True
         return False
 
+    def get_opponent_weights(self, worker_id: int) -> dict | None:
+        """Get opponent model weights for a self-play worker.
+
+        Returns None for self-play (same model), or a state_dict
+        from a league opponent.
+        """
+        if not self.agents:
+            return None
+        # Map worker to an active agent (simple round-robin)
+        agent_idx = worker_id % len(self.agents)
+        agent = self.agents[agent_idx]
+        # Select opponent via PFSP
+        opponent = self.select_opponent(agent)
+        if opponent.agent_id == agent.agent_id:
+            return None  # self-play
+        # Load opponent weights
+        try:
+            weights = torch.load(opponent.weights_path, weights_only=True, map_location='cpu')
+            return weights
+        except (FileNotFoundError, RuntimeError):
+            return None  # fallback to self-play if weights not found
+
     def get_league_stats(self) -> dict:
         """Summary statistics for logging."""
         stats = {
