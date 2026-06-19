@@ -1,5 +1,0 @@
-crsim
-eval
-mcts
-model
-training
