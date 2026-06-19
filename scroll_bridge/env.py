@@ -21,7 +21,6 @@ from __future__ import annotations
 import numpy as np
 
 from crsim.constants import (
-    ACTION_SPACE_SIZE,
     ARENA_H,
     ARENA_W,
     KING_TOWER_HP,
@@ -223,9 +222,11 @@ class ScrollBattleEnv:
         idx += 1
         scalar[idx] = ops.king_hp / KING_TOWER_HP if ops.king_hp > 0 else 0.0
         idx += 1
-        scalar[idx] = ops.princess_left_hp / PRINCESS_TOWER_HP if ops.princess_left_hp > 0 else 0.0
+        opl_hp = ops.princess_left_hp
+        scalar[idx] = opl_hp / PRINCESS_TOWER_HP if opl_hp > 0 else 0.0
         idx += 1
-        scalar[idx] = ops.princess_right_hp / PRINCESS_TOWER_HP if ops.princess_right_hp > 0 else 0.0
+        opr_hp = ops.princess_right_hp
+        scalar[idx] = opr_hp / PRINCESS_TOWER_HP if opr_hp > 0 else 0.0
         idx += 1
 
         # Crown difference
