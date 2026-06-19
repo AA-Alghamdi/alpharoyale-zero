@@ -170,7 +170,7 @@ impl PyCREngine {
 
 /// Python module
 #[pymodule]
-fn cr_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn cr_engine_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCREngine>()?;
     Ok(())
 }

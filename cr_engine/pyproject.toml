@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "cr_engine_native"
+version = "0.1.0"
+description = "Native Rust Clash Royale battle engine (PyO3 bindings)"
+requires-python = ">=3.10"
+
+[tool.maturin]
+features = ["python"]
+# Build the standalone extension module `cr_engine_native`. The pure-Python
+# `cr_engine` package (its __init__.py) re-exports CREngine from this module.
+bindings = "pyo3"

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import threading
 import time
 
@@ -50,8 +51,16 @@ def evaluate_vs_random(
     model: torch.nn.Module,
     device: torch.device,
     n_games: int = 50,
+    decision_interval: int = 8,
 ) -> float:
-    """Quick evaluation: play n games vs random opponent, return win rate."""
+    """Quick evaluation: play n games vs random opponent, return win rate.
+
+    Uses the same decision interval as self-play (search every N ticks, WAIT in
+    between) so evaluation is tractable instead of running a full search on every
+    one of the up-to-7200 ticks per game.
+    """
+    from crsim.constants import WAIT_ACTION
+    from crsim.game import Action
     from mcts.gumbel_search import _action_id_to_action
 
     searcher = GumbelMuZeroSearch(
@@ -60,6 +69,9 @@ def evaluate_vs_random(
         device=device,
     )
 
+    wait = lambda p: Action(player=p, hand_slot=-1)  # noqa: E731
+    interval = max(1, decision_interval)
+
     wins = 0
     for _ in range(n_games):
         deck_p0 = list(np.random.choice(list(CardType), 8, replace=False))
@@ -67,6 +79,10 @@ def evaluate_vs_random(
         game = CRGame(deck_p0=deck_p0, deck_p1=deck_p1)
 
         while not game.done:
+            if game.tick_count % interval != 0:
+                game.step([wait(0), wait(1)])
+                continue
+
             # Player 0: model
             action_id, _ = searcher.select_action(game, 0, deterministic=True)
             p0_action = _action_id_to_action(action_id, 0)
@@ -74,7 +90,7 @@ def evaluate_vs_random(
             # Player 1: random
             mask = game.get_valid_actions_mask(1)
             valid = np.where(mask)[0]
-            p1_action_id = int(np.random.choice(valid)) if len(valid) > 0 else 2304
+            p1_action_id = int(np.random.choice(valid)) if len(valid) > 0 else WAIT_ACTION
             p1_action = _action_id_to_action(p1_action_id, 1)
 
             game.step([p0_action, p1_action])
@@ -118,6 +134,20 @@ def main() -> None:
         help="Steps between evaluations",
     )
     parser.add_argument("--eval-games", type=int, default=50)
+
+    # Decision cadence / game truncation (search every N ticks, not every tick)
+    parser.add_argument(
+        "--decision-interval", type=int, default=8,
+        help="Run MCTS search every N game ticks (real CR bots act ~5x/sec)",
+    )
+    parser.add_argument(
+        "--max-game-ticks", type=int, default=None,
+        help="Optional hard cap on ticks per self-play game (for fast runs)",
+    )
+    parser.add_argument(
+        "--warmup-positions", type=int, default=5_000,
+        help="Fill the replay buffer to this many positions before training",
+    )
 
     args = parser.parse_args()
 
@@ -164,6 +194,8 @@ def main() -> None:
     sp_cfg = SelfPlayV2Config(
         n_games=args.self_play_games_per_batch,
         gumbel_config=gumbel_cfg,
+        decision_interval_ticks=args.decision_interval,
+        max_ticks=args.max_game_ticks,
     )
 
     # Initialize curriculum, domain randomization, league
@@ -176,6 +208,7 @@ def main() -> None:
         n_main_agents=1, n_league_exploiters=0, n_main_exploiters=0,
     ))
     # Register self as main agent
+    os.makedirs(args.checkpoint_dir, exist_ok=True)
     initial_ckpt = f"{args.checkpoint_dir}/initial.pt"
     torch.save(model.state_dict(), initial_ckpt)
     main_agent = league.add_agent(AgentType.MAIN, initial_ckpt)
@@ -232,9 +265,11 @@ def _run_single_gpu(
     logger.info("Generating initial self-play data...")
 
     # Fill replay buffer with initial data
-    while len(replay_buffer) < 5_000:
-        worker.run_batch(n_games=16)
-        logger.info("Buffer size: %d", len(replay_buffer))
+    warmup = getattr(args, "warmup_positions", 5_000)
+    warmup_batch = max(1, min(16, args.self_play_games_per_batch))
+    while len(replay_buffer) < warmup:
+        worker.run_batch(n_games=warmup_batch)
+        logger.info("Buffer size: %d / %d", len(replay_buffer), warmup)
 
     # Alternate: self-play → train → self-play → train
     steps_since_eval = 0
@@ -254,7 +289,10 @@ def _run_single_gpu(
 
         steps_since_eval += 100
         if steps_since_eval >= args.eval_interval:
-            win_rate = evaluate_vs_random(model, device, n_games=args.eval_games)
+            win_rate = evaluate_vs_random(
+                model, device, n_games=args.eval_games,
+                decision_interval=args.decision_interval,
+            )
             logger.info(
                 "Eval @ step %d: %.1f%% win rate vs random",
                 trainer.step_count, win_rate * 100,
@@ -281,7 +319,9 @@ def _run_single_gpu(
             steps_since_eval = 0
 
     trainer.save_checkpoint(tag="final")
-    final_wr = evaluate_vs_random(model, device, n_games=100)
+    final_wr = evaluate_vs_random(
+        model, device, n_games=100, decision_interval=args.decision_interval,
+    )
     logger.info("Training complete! Final win rate vs random: %.1f%%", final_wr * 100)
 
 
