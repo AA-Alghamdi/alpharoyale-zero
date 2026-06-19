@@ -451,6 +451,41 @@ class DynamicsModel(nn.Module):
         return next_state, reward
 
 
+BELIEF_FEATURE_DIM = 128
+
+
+class OpponentModelHead(nn.Module):
+    """Predict opponent's likely next action / deck composition from belief state."""
+
+    def __init__(self, hidden_dim: int = 512, n_card_types: int = 42) -> None:
+        super().__init__()
+        self.deck_predictor = nn.Sequential(
+            nn.Linear(hidden_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, n_card_types),
+            nn.Sigmoid(),
+        )
+        self.next_card_predictor = nn.Sequential(
+            nn.Linear(hidden_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, n_card_types),
+        )
+        self.elixir_predictor = nn.Sequential(
+            nn.Linear(hidden_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(
+        self, core_out: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        deck_probs = self.deck_predictor(core_out)
+        next_card_logits = self.next_card_predictor(core_out)
+        elixir_est = self.elixir_predictor(core_out).squeeze(-1)
+        return deck_probs, next_card_logits, elixir_est
+
+
 class CRStarNet(nn.Module):
     """Full next-gen ClashRoyale network combining all components.
 
@@ -458,10 +493,12 @@ class CRStarNet(nn.Module):
       Entity list → EntityEncoder → entity_summary (128-d)
       Spatial map  → SpatialEncoder → spatial_summary (128-d) + feature_map
       Scalars      → ScalarEncoder → scalar_emb (128-d)
-      [entity_summary ‖ spatial_summary ‖ scalar_emb] → LSTMCore → core_out (512-d)
+      Belief state → BeliefEncoder → belief_emb (64-d)
+      [entity_summary ‖ spatial_summary ‖ scalar_emb ‖ belief_emb] → LSTMCore → core_out (512-d)
       core_out → AutoregressivePolicyHead → (card, x, y)
       core_out → ValueHead → win probability
       core_out → AuxiliaryHeads → crowns, tower HP, game length
+      core_out → OpponentModelHead → opponent deck/card/elixir predictions
       core_out + action → DynamicsModel → next_state, reward
     """
 
@@ -474,6 +511,7 @@ class CRStarNet(nn.Module):
         scalar_dim: int = SCALAR_FEATURES,
         core_hidden: int = 512,
         core_layers: int = 2,
+        belief_dim: int = BELIEF_FEATURE_DIM,
     ) -> None:
         super().__init__()
 
@@ -490,8 +528,17 @@ class CRStarNet(nn.Module):
             out_dim=entity_embed_dim,
         )
 
-        # Fusion: entity(128) + spatial_global(128) + scalar(128) = 384 → project to core_input
-        fusion_dim = entity_embed_dim + spatial_filters + entity_embed_dim
+        # Belief state encoder for opponent modeling
+        belief_out = 64
+        self.belief_encoder = nn.Sequential(
+            nn.Linear(belief_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, belief_out),
+            nn.ReLU(),
+        )
+
+        # Fusion: entity(128) + spatial_global(128) + scalar(128) + belief(64) = 448
+        fusion_dim = entity_embed_dim + spatial_filters + entity_embed_dim + belief_out
         self.fusion = nn.Sequential(
             nn.Linear(fusion_dim, core_hidden),
             nn.ReLU(),
@@ -507,6 +554,7 @@ class CRStarNet(nn.Module):
         self.value_head = ValueHead(hidden_dim=core_hidden)
         self.aux_heads = AuxiliaryHeads(hidden_dim=core_hidden)
         self.dynamics = DynamicsModel(hidden_dim=core_hidden)
+        self.opponent_head = OpponentModelHead(hidden_dim=core_hidden)
 
         # Also keep a flat policy head for compatibility with existing MCTS
         self.flat_policy_head = nn.Sequential(
@@ -536,6 +584,7 @@ class CRStarNet(nn.Module):
         entity_features: torch.Tensor | None = None,
         entity_mask: torch.Tensor | None = None,
         hidden: tuple[torch.Tensor, torch.Tensor] | None = None,
+        belief_features: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         """Encode observations into latent state.
 
@@ -561,9 +610,17 @@ class CRStarNet(nn.Module):
         # Scalar encoding
         scalar_emb = self.scalar_encoder(scalar)
 
-        # Fuse
-        fused = torch.cat([entity_summary, spatial_global, scalar_emb], dim=-1)
-        fused = self.fusion(fused)  # (B, core_hidden)
+        # Belief state encoding
+        if belief_features is not None:
+            belief_emb = self.belief_encoder(belief_features)
+        else:
+            belief_emb = torch.zeros(bsz, 64, device=device)
+
+        # Fuse all modalities
+        fused = torch.cat(
+            [entity_summary, spatial_global, scalar_emb, belief_emb], dim=-1,
+        )
+        fused = self.fusion(fused)
 
         # LSTM core
         core_out, new_hidden = self.core(fused, hidden)
@@ -578,6 +635,7 @@ class CRStarNet(nn.Module):
         entity_features: torch.Tensor | None = None,
         entity_mask: torch.Tensor | None = None,
         hidden: tuple[torch.Tensor, torch.Tensor] | None = None,
+        belief_features: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, dict]:
         """Full forward pass.
 
@@ -588,7 +646,8 @@ class CRStarNet(nn.Module):
         extras : dict with auxiliary outputs
         """
         core_out, new_hidden = self.encode(
-            spatial, scalar, entity_features, entity_mask, hidden
+            spatial, scalar, entity_features, entity_mask, hidden,
+            belief_features=belief_features,
         )
 
         # Flat policy (for MCTS compatibility)
@@ -605,6 +664,9 @@ class CRStarNet(nn.Module):
         # Autoregressive policy (for training)
         card_logits, x_logits, y_logits = self.policy_head(core_out)
 
+        # Opponent modeling predictions
+        opp_deck, opp_next_card, opp_elixir = self.opponent_head(core_out)
+
         extras = {
             "hidden": new_hidden,
             "core_out": core_out,
@@ -614,6 +676,9 @@ class CRStarNet(nn.Module):
             "crown_logits": crown_logits,
             "tower_hp_pred": tower_hp,
             "game_length_pred": game_length,
+            "opp_deck_pred": opp_deck,
+            "opp_next_card_logits": opp_next_card,
+            "opp_elixir_pred": opp_elixir,
         }
 
         return policy_logits, value, extras
@@ -623,9 +688,78 @@ class CRStarNet(nn.Module):
         spatial: torch.Tensor,
         scalar: torch.Tensor,
         action_mask: torch.Tensor | None = None,
+        entity_features: torch.Tensor | None = None,
+        entity_mask: torch.Tensor | None = None,
+        hidden: tuple[torch.Tensor, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Inference helper compatible with existing MCTSPlayer."""
+        """Inference helper compatible with existing MCTSPlayer.
+
+        Now passes entity features and hidden state through properly.
+        """
         with torch.no_grad():
-            logits, value, _ = self.forward(spatial, scalar, action_mask)
+            logits, value, _ = self.forward(
+                spatial, scalar, action_mask,
+                entity_features=entity_features,
+                entity_mask=entity_mask,
+                hidden=hidden,
+            )
             policy = f_nn.softmax(logits, dim=-1)
         return policy, value
+
+    def predict_with_state(
+        self,
+        spatial: torch.Tensor,
+        scalar: torch.Tensor,
+        action_mask: torch.Tensor | None = None,
+        entity_features: torch.Tensor | None = None,
+        entity_mask: torch.Tensor | None = None,
+        hidden: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, dict]:
+        """Full inference returning policy, value, and all extras including hidden state.
+
+        Use this when you need to maintain LSTM state across timesteps.
+        """
+        with torch.no_grad():
+            logits, value, extras = self.forward(
+                spatial, scalar, action_mask,
+                entity_features=entity_features,
+                entity_mask=entity_mask,
+                hidden=hidden,
+            )
+            policy = f_nn.softmax(logits, dim=-1)
+        return policy, value, extras
+
+    def predict_autoregressive(
+        self,
+        spatial: torch.Tensor,
+        scalar: torch.Tensor,
+        entity_features: torch.Tensor | None = None,
+        entity_mask: torch.Tensor | None = None,
+        hidden: tuple[torch.Tensor, torch.Tensor] | None = None,
+        temperature: float = 1.0,
+    ) -> tuple[int, int, int, torch.Tensor, dict]:
+        """Autoregressive inference: sample card→x→y sequentially.
+
+        Returns (card_idx, x_pos, y_pos, log_prob, extras).
+        This is the proper way to generate actions during play.
+        """
+        with torch.no_grad():
+            core_out, new_hidden = self.encode(
+                spatial, scalar, entity_features, entity_mask, hidden,
+            )
+            card_idx, x_pos, y_pos, log_prob = self.policy_head.sample(
+                core_out, temperature=temperature,
+            )
+            value = self.value_head(core_out)
+            extras = {
+                "hidden": new_hidden,
+                "core_out": core_out,
+                "value": value,
+            }
+        return (
+            int(card_idx.item()),
+            int(x_pos.item()),
+            int(y_pos.item()),
+            log_prob,
+            extras,
+        )

@@ -37,6 +37,7 @@ from crsim.constants import (
     REGULAR_TIME_TICKS,
     RIVER_ROW_HI,
     RIVER_ROW_LO,
+    SPEED_MEDIUM,
     STARTING_ELIXIR,
     SUDDEN_DEATH_TICKS,
     TICK_DURATION,
@@ -346,12 +347,11 @@ class CRGame:
     def _apply_spell(
         self, player: int, card_def: CardDef, x: float, y: float
     ) -> None:
-        """Apply area-of-effect spell damage."""
+        """Apply area-of-effect spell damage + secondary effects."""
         radius = card_def.attack_range
         damage = card_def.dps  # total damage stored in dps field for spells
 
         if card_def.card_type == CardType.LIGHTNING:
-            # Lightning hits 3 highest-HP enemies in radius
             enemies = [
                 e for e in self.entities
                 if e.alive and e.owner != player
@@ -359,13 +359,15 @@ class CRGame:
             ]
             enemies.sort(key=lambda e: e.hp, reverse=True)
             for e in enemies[:3]:
-                e.hp -= damage
+                e.take_damage(damage)
         else:
-            # Area damage
             for e in self.entities:
                 if e.alive and e.owner != player:
                     if e.distance_to_pos(x, y) <= radius:
-                        e.hp -= damage
+                        e.take_damage(damage)
+
+        # Apply spell secondary effects (knockback, stun, inferno reset)
+        self._apply_spell_effects(player, card_def, x, y)
 
     def _apply_spell_spawn(
         self, player: int, card_def: CardDef, x: float, y: float
@@ -393,8 +395,23 @@ class CRGame:
     # Targeting
     # ------------------------------------------------------------------
 
+    def _king_tower_activated(self, player: int) -> bool:
+        """King tower is activated if a princess tower is destroyed or it was hit."""
+        kt = self.king_towers[player]
+        if kt is None or not kt.alive:
+            return False
+        if kt.hp < kt.max_hp:
+            return True
+        for pt in self.princess_towers[player]:
+            if not pt.alive:
+                return True
+        return False
+
     def _find_target(self, entity: Entity) -> int:
         """Find the best target eid for an entity. Returns -1 if none."""
+        if not entity.active:
+            return -1
+
         best_eid = -1
         best_dist = float("inf")
 
@@ -410,8 +427,15 @@ class CRGame:
                 if other.is_flying:
                     continue
 
-            # King tower only activates after a princess tower dies or
-            # it is directly attacked (simplified: always targetable)
+            # King tower: only targetable if activated
+            if other.is_king_tower:
+                if not self._king_tower_activated(other.owner):
+                    continue
+
+            # Deploying units can't be targeted
+            if not other.is_deployed:
+                continue
+
             dist = entity.distance_to(other)
             if dist < best_dist:
                 best_dist = dist
@@ -430,35 +454,44 @@ class CRGame:
     # ------------------------------------------------------------------
 
     def _move_entity(self, entity: Entity) -> None:
-        """Move entity toward its target."""
-        if entity.speed <= 0 or entity.is_building:
+        """Move entity toward its target, with charge support."""
+        if not entity.active or entity.speed <= 0 or entity.is_building:
             return
 
         target = self._get_entity(entity.target_eid)
         if target is None:
+            entity.is_charging = False
             return
 
         dist = entity.distance_to(target)
         if dist <= entity.attack_range:
-            return  # in range, don't move
+            # In range: if charging, next hit is charge hit
+            if entity.is_charging:
+                entity.next_hit_is_charge = True
+                entity.is_charging = False
+                entity.charge_distance = 0.0
+            return
 
-        step = entity.speed * TICK_DURATION
+        # Charge mechanic: start charging after traveling 2+ tiles
+        if entity.charge_speed > 0 and not entity.is_charging:
+            entity.charge_distance += entity.effective_speed * TICK_DURATION
+            if entity.charge_distance > 2.0:
+                entity.is_charging = True
+
+        move_speed = entity.effective_speed
+        step = move_speed * TICK_DURATION
 
         if entity.is_flying:
-            # Straight-line movement
             dx, dy = direction_to_target(entity.x, entity.y, target.x, target.y)
             entity.x += dx * step
             entity.y += dy * step
         else:
-            # Ground movement via flow field
-            # Determine if we need to cross the river
             need_cross = (
                 (entity.owner == 0 and target.y > RIVER_ROW_HI)
                 or (entity.owner == 1 and target.y < RIVER_ROW_LO)
             )
 
             if need_cross and RIVER_ROW_LO <= int(entity.y + 0.5) <= RIVER_ROW_HI + 1:
-                # Navigate to nearest bridge
                 bridge_targets = [
                     (BRIDGE_LEFT_COLS[0], RIVER_ROW_LO if entity.owner == 0 else RIVER_ROW_HI),
                     (BRIDGE_RIGHT_COLS[0], RIVER_ROW_LO if entity.owner == 0 else RIVER_ROW_HI),
@@ -479,7 +512,6 @@ class CRGame:
             entity.x += dx * step
             entity.y += dy * step
 
-        # Clamp to arena
         entity.x = max(0.0, min(float(ARENA_W - 1), entity.x))
         entity.y = max(0.0, min(float(ARENA_H - 1), entity.y))
 
@@ -489,7 +521,7 @@ class CRGame:
 
     def _process_combat(self, entity: Entity) -> None:
         """Handle attack logic for a single entity."""
-        if entity.attack_interval <= 0:
+        if not entity.active or entity.attack_interval <= 0:
             return
 
         target = self._get_entity(entity.target_eid)
@@ -497,16 +529,15 @@ class CRGame:
             return
 
         dist = entity.distance_to(target)
-        if dist > entity.attack_range + 0.5:  # small tolerance
+        if dist > entity.attack_range + 0.5:
             return
 
         entity.attack_timer -= TICK_DURATION
         if entity.attack_timer <= 0:
             # Compute damage
             if entity.inferno_dps_max > 0:
-                # Inferno tower ramp-up
                 entity.inferno_ramp_time += entity.attack_interval
-                t = min(entity.inferno_ramp_time / 5.0, 1.0)  # 5s to full ramp
+                t = min(entity.inferno_ramp_time / 5.0, 1.0)
                 current_dps = (
                     entity.inferno_dps_min
                     + (entity.inferno_dps_max - entity.inferno_dps_min) * t
@@ -515,18 +546,28 @@ class CRGame:
             else:
                 dmg = entity.damage_per_hit
 
+            # Apply stun effect from attacker
+            card_def = CARD_DEFS.get(entity.card_type)
+            if card_def and card_def.stuns and card_def.stun_duration > 0:
+                target.apply_stun(card_def.stun_duration)
+
+            # Reset inferno if attacker resets
+            if card_def and card_def.resets_inferno and target.inferno_dps_max > 0:
+                target.inferno_ramp_time = 0.0
+
             if entity.is_splash and entity.splash_radius > 0:
-                # Splash damage to all enemies near target
                 for other in self.entities:
                     if (
                         other.alive
                         and other.owner != entity.owner
                         and other.distance_to(target) <= entity.splash_radius
                     ):
-                        other.hp -= dmg
+                        other.take_damage(dmg)
             else:
-                target.hp -= dmg
+                target.take_damage(dmg)
 
+            # Clear charge flag after hit
+            entity.next_hit_is_charge = False
             entity.attack_timer = entity.attack_interval
 
     # ------------------------------------------------------------------
@@ -646,6 +687,90 @@ class CRGame:
     # Main tick
     # ------------------------------------------------------------------
 
+    def _tick_timers(self) -> None:
+        """Decrement per-entity timers: deploy, stun, slow."""
+        for e in self.entities:
+            if not e.alive:
+                continue
+            # Deploy timer
+            if not e.is_deployed:
+                e.deploy_timer -= TICK_DURATION
+                if e.deploy_timer <= 0:
+                    e.is_deployed = True
+                    e.deploy_timer = 0.0
+            # Stun timer
+            if e.stun_timer > 0:
+                e.stun_timer -= TICK_DURATION
+                if e.stun_timer < 0:
+                    e.stun_timer = 0.0
+            # Slow timer
+            if e.slow_timer > 0:
+                e.slow_timer -= TICK_DURATION
+                if e.slow_timer < 0:
+                    e.slow_timer = 0.0
+
+    def _process_death_spawns(self) -> None:
+        """Spawn units from dying entities (Golem→Golemites, etc.)."""
+        new_entities: list[Entity] = []
+        for e in self.entities:
+            if e.alive or e.is_tower:
+                continue
+            if e.death_spawn_count > 0 and e.death_spawn_hp > 0:
+                for i in range(e.death_spawn_count):
+                    if len(self.entities) + len(new_entities) >= MAX_ENTITIES:
+                        break
+                    angle = 2.0 * math.pi * i / max(e.death_spawn_count, 1)
+                    ox = math.cos(angle) * 0.5
+                    oy = math.sin(angle) * 0.5
+                    spawned = Entity(
+                        eid=self._alloc_eid(),
+                        owner=e.owner,
+                        card_type=e.card_type,
+                        kind=EntityKind.TROOP,
+                        x=e.x + ox,
+                        y=e.y + oy,
+                        hp=e.death_spawn_hp,
+                        max_hp=e.death_spawn_hp,
+                        dps=e.death_spawn_dps,
+                        attack_interval=1.5,
+                        attack_timer=1.5,
+                        attack_range=1.2,
+                        target_mode=e.target_mode,
+                        speed=e.speed if e.speed > 0 else SPEED_MEDIUM,
+                        base_speed=e.speed if e.speed > 0 else SPEED_MEDIUM,
+                        is_flying=e.is_flying,
+                    )
+                    new_entities.append(spawned)
+        self.entities.extend(new_entities)
+
+    def _apply_spell_effects(
+        self, player: int, card_def: CardDef, x: float, y: float,
+    ) -> None:
+        """Apply knockback, stun, and inferno reset from spells."""
+        for e in self.entities:
+            if not e.alive or e.owner == player:
+                continue
+            dist = e.distance_to_pos(x, y)
+            if dist > card_def.attack_range:
+                continue
+            # Knockback
+            if card_def.has_knockback and card_def.knockback_distance > 0:
+                if not e.is_flying and not e.is_building:
+                    dx = e.x - x
+                    dy = e.y - y
+                    mag = math.sqrt(dx * dx + dy * dy)
+                    if mag > 0.01:
+                        e.x += (dx / mag) * card_def.knockback_distance
+                        e.y += (dy / mag) * card_def.knockback_distance
+                        e.x = max(0.0, min(float(ARENA_W - 1), e.x))
+                        e.y = max(0.0, min(float(ARENA_H - 1), e.y))
+            # Stun
+            if card_def.stuns and card_def.stun_duration > 0:
+                e.apply_stun(card_def.stun_duration)
+            # Inferno reset
+            if card_def.resets_inferno and e.inferno_dps_max > 0:
+                e.inferno_ramp_time = 0.0
+
     def step(self, actions: list[Action]) -> None:
         """Advance the game by one tick (0.5 s).
 
@@ -664,10 +789,13 @@ class CRGame:
         for a in actions:
             self.apply_action(a)
 
-        # 3. Update buildings (decay, spawners)
+        # 3. Tick timers (deploy, stun, slow)
+        self._tick_timers()
+
+        # 4. Update buildings (decay, spawners)
         self._update_buildings()
 
-        # 4. For each entity: find target, move, attack
+        # 5. For each entity: find target, move, attack
         for entity in self.entities:
             if not entity.alive:
                 continue
@@ -683,7 +811,10 @@ class CRGame:
                 continue
             self._process_combat(entity)
 
-        # 5. Remove dead entities (keep towers for crown tracking)
+        # 6. Process death spawns before removing dead entities
+        self._process_death_spawns()
+
+        # 7. Remove dead entities (keep towers for crown tracking)
         self.entities = [
             e for e in self.entities if e.alive or e.is_tower
         ]
@@ -691,7 +822,7 @@ class CRGame:
         # Invalidate flow cache if buildings died
         self.flow_cache.invalidate()
 
-        # 6. Advance tick and check win
+        # 8. Advance tick and check win
         self.tick_count += 1
         self._check_win()
 

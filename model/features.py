@@ -59,8 +59,8 @@ def encode_state(
         # Determine channel offset
         is_friendly = entity.owner == player
         if entity.is_tower:
-            # Towers go into channels 40–41
-            chan = 40 if is_friendly else 41
+            # Towers go into channels 2*NUM_CARD_TYPES and 2*NUM_CARD_TYPES+1
+            chan = 2 * NUM_CARD_TYPES if is_friendly else 2 * NUM_CARD_TYPES + 1
             ex, ey = entity.x, entity.y
             if flip:
                 ey = (ARENA_H - 1) - ey
@@ -101,9 +101,9 @@ def encode_state(
                 action_id = slot * ARENA_W * ARENA_H + x * ARENA_H + y
                 if mask[action_id]:
                     vy = (ARENA_H - 1 - y) if flip else y
-                    spatial[42, vy, x] = 1.0
+                    spatial[2 * NUM_CARD_TYPES + 2, vy, x] = 1.0
 
-    # Channel 43: static map (river = 1, bridges = 0.5)
+    # Channel 2*N+3: static map (river = 1, bridges = 0.5)
     from crsim.constants import (
         BRIDGE_LEFT_COLS,
         BRIDGE_RIGHT_COLS,
@@ -117,7 +117,7 @@ def encode_state(
                 BRIDGE_LEFT_COLS[0] <= x <= BRIDGE_LEFT_COLS[1]
                 or BRIDGE_RIGHT_COLS[0] <= x <= BRIDGE_RIGHT_COLS[1]
             )
-            spatial[43, vy, x] = 0.5 if is_bridge else 1.0
+            spatial[2 * NUM_CARD_TYPES + 3, vy, x] = 0.5 if is_bridge else 1.0
 
     # ------------------------------------------------------------------
     # Scalar features
@@ -181,11 +181,195 @@ def encode_state(
     return spatial, scalar
 
 
+# ---------------------------------------------------------------------------
+# Entity feature extraction (for EntityTransformer)
+# ---------------------------------------------------------------------------
+ENTITY_FEATURE_DIM = 40  # must match model/transformer_net.py
+MAX_ENTITY_SLOTS = 64  # max entities we encode
+
+# Feature layout per entity (40-d):
+#   [0]      type_id (int, used for type embedding lookup)
+#   [1]      owner (0=friendly, 1=enemy)
+#   [2:4]    position (x/W, y/H) normalized
+#   [4]      hp / max_hp
+#   [5]      max_hp / 5000 (absolute scale)
+#   [6]      dps / 500
+#   [7]      speed / 4.0
+#   [8]      attack_range / 10.0
+#   [9]      is_flying
+#   [10]     is_splash
+#   [11]     is_building
+#   [12]     is_tower
+#   [13]     is_king_tower
+#   [14]     target_mode (one-hot 0-3) → [14:18]
+#   [18]     attack_timer / attack_interval (readiness)
+#   [19]     building_timer / 70.0
+#   [20]     elixir_cost / 10.0
+#   [21:23]  velocity direction estimate (dx, dy) — from target
+#   [23:40]  reserved / zero-padded
+
+
+def extract_entity_features(
+    game: CRGame,
+    player: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Extract per-entity feature vectors for the EntityTransformer.
+
+    Returns
+    -------
+    entity_features : (MAX_ENTITY_SLOTS, ENTITY_FEATURE_DIM) float32
+    entity_mask : (MAX_ENTITY_SLOTS,) bool — True for real entities
+    """
+    from crsim.cards import CARD_DEFS
+    from crsim.pathfinding import direction_to_target
+
+    flip = player == 1
+    features = np.zeros((MAX_ENTITY_SLOTS, ENTITY_FEATURE_DIM), dtype=np.float32)
+    mask = np.zeros(MAX_ENTITY_SLOTS, dtype=bool)
+
+    alive_entities = [e for e in game.entities if e.alive]
+    n = min(len(alive_entities), MAX_ENTITY_SLOTS)
+
+    for i in range(n):
+        e = alive_entities[i]
+        is_friendly = e.owner == player
+        f = features[i]
+
+        # Type ID (for embedding lookup)
+        f[0] = float(e.card_type)
+
+        # Owner
+        f[1] = 0.0 if is_friendly else 1.0
+
+        # Position (flipped if player 1)
+        ex, ey = e.x, e.y
+        if flip:
+            ey = (ARENA_H - 1) - ey
+        f[2] = ex / ARENA_W
+        f[3] = ey / ARENA_H
+
+        # HP
+        f[4] = e.hp / max(e.max_hp, 1.0)
+        f[5] = e.max_hp / 5000.0
+
+        # Combat stats
+        f[6] = e.dps / 500.0
+        f[7] = e.speed / 4.0
+        f[8] = e.attack_range / 10.0
+
+        # Flags
+        f[9] = 1.0 if e.is_flying else 0.0
+        f[10] = 1.0 if e.is_splash else 0.0
+        f[11] = 1.0 if e.is_building else 0.0
+        f[12] = 1.0 if e.is_tower else 0.0
+        f[13] = 1.0 if e.is_king_tower else 0.0
+
+        # Target mode (one-hot)
+        tm = int(e.target_mode)
+        if 0 <= tm <= 3:
+            f[14 + tm] = 1.0
+
+        # Attack readiness
+        if e.attack_interval > 0:
+            f[18] = e.attack_timer / e.attack_interval
+        else:
+            f[18] = 0.0
+
+        # Building timer
+        f[19] = e.building_timer / 70.0 if e.is_building else 0.0
+
+        # Elixir cost (from card def if available)
+        if e.card_type in CARD_DEFS:
+            f[20] = CARD_DEFS[e.card_type].cost / 10.0
+
+        # Velocity estimate (direction toward target)
+        target = game._get_entity(e.target_eid) if e.target_eid >= 0 else None
+        if target is not None and e.speed > 0:
+            dx, dy = direction_to_target(e.x, e.y, target.x, target.y)
+            if flip:
+                dy = -dy
+            f[21] = dx
+            f[22] = dy
+
+        mask[i] = True
+
+    return features, mask
+
+
+# ---------------------------------------------------------------------------
+# Auxiliary target extraction (real values, not approximations)
+# ---------------------------------------------------------------------------
+
+def extract_auxiliary_targets(
+    game: CRGame,
+    player: int,
+) -> dict[str, np.ndarray]:
+    """Extract real auxiliary targets from game state for KataGo-style training.
+
+    Returns dict with:
+      crown_diff: int in [-3, 3] → index in [0, 6]
+      tower_hp: (6,) float — normalized HP of all 6 towers from player's perspective
+      game_length_remaining: float in [0, 1]
+    """
+    our_crowns = game._count_crowns(player)
+    their_crowns = game._count_crowns(1 - player)
+    crown_diff = our_crowns - their_crowns  # [-3, 3]
+    crown_idx = crown_diff + 3  # [0, 6]
+
+    # Tower HP: [our_king, our_L_princess, our_R_princess,
+    #            their_king, their_L_princess, their_R_princess]
+    tower_hp = np.zeros(6, dtype=np.float32)
+    for side_idx, p in enumerate([player, 1 - player]):
+        offset = side_idx * 3
+        kt = game.king_towers[p]
+        tower_hp[offset] = (kt.hp / kt.max_hp) if (kt and kt.alive) else 0.0
+        pts = game.princess_towers[p]
+        for i in range(2):
+            if i < len(pts):
+                tower_hp[offset + 1 + i] = (
+                    pts[i].hp / pts[i].max_hp if pts[i].alive else 0.0
+                )
+
+    # Game length remaining
+    game_length_remaining = 1.0 - (game.tick_count / TOTAL_MAX_TICKS)
+    game_length_remaining = max(0.0, min(1.0, game_length_remaining))
+
+    return {
+        "crown_target": np.array(crown_idx, dtype=np.int64),
+        "tower_hp_target": tower_hp,
+        "game_length_target": np.array(game_length_remaining, dtype=np.float32),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Full state encoding (upgraded)
+# ---------------------------------------------------------------------------
+
+def encode_state_full(
+    game: CRGame,
+    player: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+    """Full state encoding including entity features and auxiliary targets.
+
+    Returns
+    -------
+    spatial : (SPATIAL_CHANNELS, ARENA_H, ARENA_W) float32
+    scalar : (SCALAR_FEATURES,) float32
+    entity_features : (MAX_ENTITY_SLOTS, ENTITY_FEATURE_DIM) float32
+    entity_mask : (MAX_ENTITY_SLOTS,) bool
+    aux_targets : dict with crown_target, tower_hp_target, game_length_target
+    """
+    spatial, scalar = encode_state(game, player)
+    entity_feats, entity_mask = extract_entity_features(game, player)
+    aux_targets = extract_auxiliary_targets(game, player)
+    return spatial, scalar, entity_feats, entity_mask, aux_targets
+
+
 def encode_batch(
     games: list[CRGame],
     players: list[int],
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Encode a batch of game states.
+    """Encode a batch of game states (legacy API — spatial + scalar only).
 
     Returns
     -------
@@ -200,3 +384,29 @@ def encode_batch(
         spatials[i], scalars[i] = encode_state(g, p)
 
     return spatials, scalars
+
+
+def encode_batch_full(
+    games: list[CRGame],
+    players: list[int],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Encode a batch with entity features.
+
+    Returns
+    -------
+    spatial : (B, SPATIAL_CHANNELS, ARENA_H, ARENA_W)
+    scalar : (B, SCALAR_FEATURES)
+    entity_features : (B, MAX_ENTITY_SLOTS, ENTITY_FEATURE_DIM)
+    entity_mask : (B, MAX_ENTITY_SLOTS) bool
+    """
+    batch = len(games)
+    spatials = np.zeros((batch, SPATIAL_CHANNELS, ARENA_H, ARENA_W), dtype=np.float32)
+    scalars = np.zeros((batch, SCALAR_FEATURES), dtype=np.float32)
+    ent_feats = np.zeros((batch, MAX_ENTITY_SLOTS, ENTITY_FEATURE_DIM), dtype=np.float32)
+    ent_masks = np.zeros((batch, MAX_ENTITY_SLOTS), dtype=bool)
+
+    for i, (g, p) in enumerate(zip(games, players)):
+        spatials[i], scalars[i] = encode_state(g, p)
+        ent_feats[i], ent_masks[i] = extract_entity_features(g, p)
+
+    return spatials, scalars, ent_feats, ent_masks

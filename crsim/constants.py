@@ -58,7 +58,7 @@ MAX_ELIXIR: float = 10.0
 # Entities
 # ---------------------------------------------------------------------------
 MAX_ENTITIES: int = 128  # per game (both sides combined)
-NUM_CARD_TYPES: int = 20
+NUM_CARD_TYPES: int = 42  # 0-41 inclusive
 
 # Movement speed tiers (tiles per second)
 SPEED_SLOW: float = 1.0
@@ -76,5 +76,5 @@ WAIT_ACTION: int = ACTION_SPACE_SIZE - 1
 # ---------------------------------------------------------------------------
 # State representation
 # ---------------------------------------------------------------------------
-SPATIAL_CHANNELS: int = 2 * NUM_CARD_TYPES + 4  # 44 channels
-SCALAR_FEATURES: int = 116
+SPATIAL_CHANNELS: int = 2 * NUM_CARD_TYPES + 4  # 88 channels for 42 cards
+SCALAR_FEATURES: int = 2 + 5 * NUM_CARD_TYPES + 14  # 226 for 42 cards

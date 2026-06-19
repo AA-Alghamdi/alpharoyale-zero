@@ -20,7 +20,7 @@ import torch
 
 from crsim.constants import ACTION_SPACE_SIZE, ARENA_H, ARENA_W, WAIT_ACTION
 from crsim.game import Action, CRGame
-from model.features import encode_state
+from model.features import encode_state, extract_entity_features
 
 
 @dataclass
@@ -154,7 +154,7 @@ class GumbelMuZeroSearch:
     def _evaluate(
         self, game: CRGame, player: int,
     ) -> tuple[np.ndarray, float]:
-        """Neural network evaluation."""
+        """Neural network evaluation with entity features (if model supports them)."""
         spatial, scalar = encode_state(game, player)
         valid_mask = game.get_valid_actions_mask(player)
 
@@ -162,7 +162,18 @@ class GumbelMuZeroSearch:
         sc_t = torch.from_numpy(scalar).unsqueeze(0).to(self.device)
         vm_t = torch.from_numpy(valid_mask).unsqueeze(0).to(self.device)
 
-        policy, value = self.model.predict(sp_t, sc_t, vm_t)
+        # Check if model supports entity features (CRStarNet does, CRZeroNet doesn't)
+        has_entity_support = hasattr(self.model, "entity_encoder")
+        if has_entity_support:
+            entity_feats, entity_mask = extract_entity_features(game, player)
+            ef_t = torch.from_numpy(entity_feats).unsqueeze(0).to(self.device)
+            em_t = torch.from_numpy(entity_mask).unsqueeze(0).to(self.device)
+            policy, value = self.model.predict(
+                sp_t, sc_t, vm_t, entity_features=ef_t, entity_mask=em_t,
+            )
+        else:
+            policy, value = self.model.predict(sp_t, sc_t, vm_t)
+
         return policy.cpu().numpy()[0], float(value.cpu().numpy()[0])
 
     def search(

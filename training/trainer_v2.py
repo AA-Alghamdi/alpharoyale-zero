@@ -104,35 +104,44 @@ class TrainerV2:
         return pruned / total
 
     def train_step(self) -> dict[str, float]:
-        """One training step with all improvements."""
+        """One training step with entity features + real aux targets."""
         if len(self.replay_buffer) < self.batch_size:
             return {}
 
         self.model.train()
 
-        # Sample from replay buffer
-        spatial_np, scalar_np, policy_np, value_np = self.replay_buffer.sample(
-            self.batch_size
-        )
+        # Sample full batch with entity features and aux targets
+        batch = self.replay_buffer.sample_full(self.batch_size)
 
-        spatial = torch.from_numpy(spatial_np).to(self.device)
-        scalar = torch.from_numpy(scalar_np).to(self.device)
-        target_policy = torch.from_numpy(policy_np).to(self.device)
-        target_value = torch.from_numpy(value_np).to(self.device)
+        spatial = torch.from_numpy(batch["spatial"]).to(self.device)
+        scalar = torch.from_numpy(batch["scalar"]).to(self.device)
+        entity_features = torch.from_numpy(batch["entity_features"]).to(self.device)
+        entity_mask = torch.from_numpy(batch["entity_mask"]).to(self.device)
+        target_policy = torch.from_numpy(batch["policy"]).to(self.device)
+        target_value = torch.from_numpy(batch["value"]).to(self.device)
+
+        # Real auxiliary targets
+        crown_target = torch.from_numpy(batch["crown_target"]).to(self.device)
+        tower_hp_target = torch.from_numpy(batch["tower_hp_target"]).to(self.device)
+        game_length_target = torch.from_numpy(batch["game_length_target"]).to(self.device)
 
         # Apply policy target pruning
         target_policy = self._prune_policy_targets(target_policy)
 
         with autocast():
-            # Check if model is new-gen (CRStarNet) or legacy (CRZeroNet)
-            result = self.model(spatial, scalar)
+            # Forward with entity features
+            result = self.model(
+                spatial, scalar,
+                entity_features=entity_features,
+                entity_mask=entity_mask,
+            )
             if isinstance(result, tuple) and len(result) == 3:
                 pred_logits, pred_value, extras = result
             else:
                 pred_logits, pred_value = result
                 extras = {}
 
-            # Policy loss
+            # Policy loss (KL divergence from MCTS targets)
             log_probs = f_nn.log_softmax(pred_logits, dim=-1)
             policy_loss = -(target_policy * log_probs).sum(dim=-1).mean()
 
@@ -141,21 +150,40 @@ class TrainerV2:
 
             loss = policy_loss + self.value_loss_weight * value_loss
 
-            # Auxiliary losses (if CRStarNet)
+            # Real auxiliary losses
             aux_loss = torch.tensor(0.0, device=self.device)
             if "crown_logits" in extras:
-                # Crown prediction: we approximate target as crown diff from value
-                crown_target = (target_value * 3).long().clamp(0, 6)
-                aux_loss = aux_loss + f_nn.cross_entropy(extras["crown_logits"], crown_target)
+                aux_loss = aux_loss + f_nn.cross_entropy(
+                    extras["crown_logits"], crown_target,
+                )
+
+            if "tower_hp_pred" in extras:
+                aux_loss = aux_loss + f_nn.mse_loss(
+                    extras["tower_hp_pred"], tower_hp_target,
+                )
 
             if "game_length_pred" in extras:
-                # Game length: approximate as random for now (will be filled from real data)
                 aux_loss = aux_loss + f_nn.mse_loss(
-                    extras["game_length_pred"],
-                    torch.rand_like(extras["game_length_pred"]),
-                ) * 0.1
+                    extras["game_length_pred"].squeeze(-1), game_length_target,
+                )
 
             loss = loss + self.aux_loss_weight * aux_loss
+
+            # Dynamics model loss (train to predict next latent state)
+            dynamics_loss = torch.tensor(0.0, device=self.device)
+            if hasattr(self.model, "dynamics") and self.model.dynamics is not None:
+                # Use pairs of consecutive positions as dynamics training signal
+                core_out = extras.get("core_out")
+                if core_out is not None and core_out.shape[0] > 1:
+                    # Train dynamics: predict state[t+1] from state[t] + action
+                    current = core_out[:-1]
+                    target_next = core_out[1:].detach()
+                    dummy_actions = torch.zeros(
+                        current.shape[0], 55, device=self.device,
+                    )
+                    pred_next, _ = self.model.dynamics(current, dummy_actions)
+                    dynamics_loss = f_nn.mse_loss(pred_next, target_next)
+                    loss = loss + self.dynamics_loss_weight * dynamics_loss
 
         # Backward
         self.optimizer.zero_grad()
@@ -176,6 +204,7 @@ class TrainerV2:
             "loss/policy": float(policy_loss),
             "loss/value": float(value_loss),
             "loss/aux": float(aux_loss),
+            "loss/dynamics": float(dynamics_loss),
             "loss/ema": self._ema_loss,
             "grad_norm": float(grad_norm),
             "lr": self.optimizer.param_groups[0]["lr"],

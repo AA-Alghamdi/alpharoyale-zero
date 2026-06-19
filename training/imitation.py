@@ -174,17 +174,64 @@ def transfer_value_weights(
 ) -> None:
     """Transfer learned weights from the warm-start model to the main network's value head.
 
-    This is a soft transfer — copies the last layer weights and adjusts
-    the main network's value head initialization.
+    Copies the final hidden→output layers from warmstart to the main model's
+    value head, adapting for dimension mismatches when necessary.
     """
     with torch.no_grad():
-        # Extract the final linear layer weights from warmstart
-        ws_last = warmstart_model.net[-2]  # Linear(256, 1) before Sigmoid
-        if hasattr(ws_last, "weight"):
-            # Try to find corresponding layer in main model
-            if hasattr(main_model, "value_head"):
-                # Transfer bias/initialization signal
-                logger.info("Transferred value warm-start weights to main model")
+        # DeckValueNetwork layers: L(in,512) → L(512,512) → L(512,256) → L(256,1)
+        ws_layers = [m for m in warmstart_model.net if isinstance(m, nn.Linear)]
+
+        if not hasattr(main_model, "value_head"):
+            logger.warning("Main model has no value_head — skipping transfer")
+            return
+
+        # Find linear layers in the main model's value head
+        main_layers: list[nn.Linear] = []
+        for m in main_model.value_head.modules():
+            if isinstance(m, nn.Linear):
+                main_layers.append(m)
+
+        if not main_layers or not ws_layers:
+            logger.warning("Could not find layers to transfer")
+            return
+
+        # Transfer final layer (256→1) if shapes match
+        ws_final = ws_layers[-1]
+        main_final = main_layers[-1]
+        if ws_final.weight.shape == main_final.weight.shape:
+            main_final.weight.copy_(ws_final.weight)
+            if ws_final.bias is not None and main_final.bias is not None:
+                main_final.bias.copy_(ws_final.bias)
+            logger.info(
+                "Transferred final layer (%s → %s)",
+                ws_final.weight.shape, main_final.weight.shape,
+            )
+
+        # Transfer second-to-last layer (512→256) if shapes match
+        if len(ws_layers) >= 2 and len(main_layers) >= 2:
+            ws_prev = ws_layers[-2]
+            main_prev = main_layers[-2]
+            if ws_prev.weight.shape == main_prev.weight.shape:
+                main_prev.weight.copy_(ws_prev.weight)
+                if ws_prev.bias is not None and main_prev.bias is not None:
+                    main_prev.bias.copy_(ws_prev.bias)
+                logger.info(
+                    "Transferred penultimate layer (%s → %s)",
+                    ws_prev.weight.shape, main_prev.weight.shape,
+                )
+            else:
+                # Partial transfer: copy overlapping dimensions
+                min_out = min(ws_prev.weight.shape[0], main_prev.weight.shape[0])
+                min_in = min(ws_prev.weight.shape[1], main_prev.weight.shape[1])
+                main_prev.weight[:min_out, :min_in].copy_(
+                    ws_prev.weight[:min_out, :min_in]
+                )
+                logger.info(
+                    "Partial transfer penultimate layer (%dx%d of %s)",
+                    min_out, min_in, main_prev.weight.shape,
+                )
+
+        logger.info("Value warm-start weight transfer complete")
 
 
 class PolicyWarmstart:

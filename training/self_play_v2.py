@@ -19,7 +19,11 @@ import torch
 from crsim.cards import CardType
 from crsim.game import Action, CRGame
 from mcts.gumbel_search import GumbelConfig, GumbelMuZeroSearch, _action_id_to_action
-from model.features import encode_state
+from model.features import (
+    encode_state,
+    extract_auxiliary_targets,
+    extract_entity_features,
+)
 from training.replay_buffer import ReplayBuffer, ReplayEntry
 
 logger = logging.getLogger(__name__)
@@ -78,7 +82,10 @@ class SelfPlayWorkerV2:
         self.total_wins: dict[int, int] = {0: 0, 1: 0, -1: 0}
 
     def play_game(self) -> list[ReplayEntry]:
-        """Play one self-play game and return trajectory."""
+        """Play one self-play game and return trajectory.
+
+        Now collects entity features and real auxiliary targets at each step.
+        """
         cfg = self.config
 
         if cfg.random_decks:
@@ -90,7 +97,8 @@ class SelfPlayWorkerV2:
 
         game = CRGame(deck_p0=deck_p0, deck_p1=deck_p1, seed=int(self.rng.integers(0, 2**31)))
 
-        trajectory: list[tuple[np.ndarray, np.ndarray, np.ndarray, int]] = []
+        # Collect full trajectory with entity features + aux targets
+        trajectory: list[dict] = []
         move_count = 0
 
         while not game.done:
@@ -103,12 +111,26 @@ class SelfPlayWorkerV2:
                 else:
                     self.searcher.config.temperature = 1.0
 
+                # Full state encoding including entity features
                 spatial, scalar = encode_state(game, player)
+                entity_feats, entity_mask = extract_entity_features(game, player)
+                aux = extract_auxiliary_targets(game, player)
+
                 action_id, action_probs = self.searcher.select_action(
                     game, player, deterministic=False,
                 )
 
-                trajectory.append((spatial, scalar, action_probs, player))
+                trajectory.append({
+                    "spatial": spatial,
+                    "scalar": scalar,
+                    "entity_features": entity_feats,
+                    "entity_mask": entity_mask,
+                    "policy": action_probs,
+                    "player": player,
+                    "crown_target": int(aux["crown_target"]),
+                    "tower_hp_target": aux["tower_hp_target"],
+                    "game_length_target": float(aux["game_length_target"]),
+                })
 
                 action = _action_id_to_action(action_id, player)
                 actions_for_step.append(action)
@@ -125,28 +147,47 @@ class SelfPlayWorkerV2:
         else:
             self.total_wins[-1] += 1
 
-        # Build entries with terminal reward
+        # Collect final aux targets (terminal state)
+        final_aux_0 = extract_auxiliary_targets(game, 0)
+        final_aux_1 = extract_auxiliary_targets(game, 1)
+
+        # Build entries with terminal reward + real aux targets
         entries: list[ReplayEntry] = []
-        for spatial, scalar, policy, player in trajectory:
+        for step in trajectory:
+            player = step["player"]
             reward = game.get_reward(player)
+            # Use terminal crown/tower state as targets (hindsight)
+            final_aux = final_aux_0 if player == 0 else final_aux_1
             entries.append(ReplayEntry(
-                spatial=spatial,
-                scalar=scalar,
-                policy=policy,
+                spatial=step["spatial"],
+                scalar=step["scalar"],
+                policy=step["policy"],
                 value=reward,
+                entity_features=step["entity_features"],
+                entity_mask=step["entity_mask"],
+                crown_target=int(final_aux["crown_target"]),
+                tower_hp_target=final_aux["tower_hp_target"],
+                game_length_target=step["game_length_target"],
             ))
 
         # Data augmentation: add flipped perspective
         if cfg.augment_flip and self.rng.random() < 0.5:
-            for spatial, scalar, policy, player in trajectory:
-                reward = game.get_reward(1 - player)  # opposite player's reward
-                # Flip the spatial features vertically
-                flipped_spatial = np.flip(spatial, axis=1).copy()
+            for step in trajectory:
+                player = step["player"]
+                opp = 1 - player
+                reward = game.get_reward(opp)
+                flipped_spatial = np.flip(step["spatial"], axis=1).copy()
+                final_aux = final_aux_1 if player == 0 else final_aux_0
                 entries.append(ReplayEntry(
                     spatial=flipped_spatial,
-                    scalar=scalar,
-                    policy=policy,
+                    scalar=step["scalar"],
+                    policy=step["policy"],
                     value=reward,
+                    entity_features=step["entity_features"],
+                    entity_mask=step["entity_mask"],
+                    crown_target=int(final_aux["crown_target"]),
+                    tower_hp_target=final_aux["tower_hp_target"],
+                    game_length_target=step["game_length_target"],
                 ))
 
         self.games_played += 1
