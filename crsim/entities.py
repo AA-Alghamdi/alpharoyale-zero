@@ -190,7 +190,7 @@ def entity_from_card(
         charge_damage_mult=card_def.charge_damage_mult,
         has_shield=card_def.has_shield,
         shield_hp=card_def.shield_hp,
-        death_spawn_card_type=card_def.death_spawn_type,
+        death_spawn_card_type=card_def.death_spawn_card,
         death_spawn_count=card_def.death_spawn_count,
         death_spawn_hp=card_def.death_spawn_hp,
         death_spawn_dps=card_def.death_spawn_dps,

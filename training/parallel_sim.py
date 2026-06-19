@@ -58,12 +58,28 @@ class GameResult:
 class InferenceRequest:
     """A state waiting for neural net evaluation."""
 
-    __slots__ = ("worker_id", "game_id", "state", "valid_actions", "result_event", "policy", "value")
+    __slots__ = (
+        "worker_id", "game_id", "spatial", "scalar",
+        "entity_features", "entity_mask", "valid_actions",
+        "result_event", "policy", "value",
+    )
 
-    def __init__(self, worker_id: int, game_id: int, state: np.ndarray, valid_actions: np.ndarray) -> None:
+    def __init__(
+        self,
+        worker_id: int,
+        game_id: int,
+        spatial: np.ndarray,
+        scalar: np.ndarray,
+        entity_features: np.ndarray,
+        entity_mask: np.ndarray,
+        valid_actions: np.ndarray,
+    ) -> None:
         self.worker_id = worker_id
         self.game_id = game_id
-        self.state = state
+        self.spatial = spatial
+        self.scalar = scalar
+        self.entity_features = entity_features
+        self.entity_mask = entity_mask
         self.valid_actions = valid_actions
         self.result_event = threading.Event()
         self.policy: np.ndarray | None = None
@@ -125,13 +141,31 @@ class GPUBatcher:
             if not batch:
                 continue
 
-            # Stack states into a batch tensor
-            states = np.stack([r.state for r in batch])
-            states_tensor = torch.from_numpy(states).float().to(self.device)
+            # Stack structured inputs into batch tensors
+            spatial_batch = torch.from_numpy(
+                np.stack([r.spatial for r in batch])
+            ).float().to(self.device)
+            scalar_batch = torch.from_numpy(
+                np.stack([r.scalar for r in batch])
+            ).float().to(self.device)
+            mask_batch = torch.from_numpy(
+                np.stack([r.valid_actions for r in batch])
+            ).float().to(self.device)
+            entity_batch = torch.from_numpy(
+                np.stack([r.entity_features for r in batch])
+            ).float().to(self.device)
+            entity_mask_batch = torch.from_numpy(
+                np.stack([r.entity_mask for r in batch])
+            ).bool().to(self.device)
 
-            # Forward pass
+            # Forward pass with full CRStarNet signature
             with torch.no_grad():
-                policy_logits, values = self.model(states_tensor)
+                result = self.model(
+                    spatial_batch, scalar_batch, mask_batch,
+                    entity_batch, entity_mask_batch,
+                )
+                policy_logits = result[0]
+                values = result[1]
                 policies = torch.softmax(policy_logits, dim=-1).cpu().numpy()
                 values = values.squeeze(-1).cpu().numpy()
 
@@ -275,7 +309,7 @@ class GameWorker:
         )
 
     def _random_decks(self):
-        from crsim.cards_v2 import CardType
+        from crsim.cards import CardType
         all_cards = list(CardType)
         np.random.shuffle(all_cards)
         return list(all_cards[:8]), list(all_cards[8:16])

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
-from crsim.cards import CardType
+from crsim.cards import CARD_DEFS, CardType
 from crsim.game import Action, CRGame
 from mcts.gumbel_search import GumbelConfig, GumbelMuZeroSearch, _action_id_to_action
 from model.features import (
@@ -24,6 +24,9 @@ from model.features import (
     extract_auxiliary_targets,
     extract_entity_features,
 )
+from training.curriculum import CurriculumManager, DeckSampler
+from training.domain_randomization import DomainRandomizer
+from training.opponent_model import CardTracker, ElixirTracker
 from training.replay_buffer import ReplayBuffer, ReplayEntry
 
 logger = logging.getLogger(__name__)
@@ -63,6 +66,8 @@ class SelfPlayWorkerV2:
         config: SelfPlayV2Config | None = None,
         device: torch.device | None = None,
         worker_id: int = 0,
+        curriculum: CurriculumManager | None = None,
+        randomizer: DomainRandomizer | None = None,
     ) -> None:
         self.model = model
         self.replay_buffer = replay_buffer
@@ -77,6 +82,10 @@ class SelfPlayWorkerV2:
             device=self.device,
         )
 
+        # Integration modules
+        self.curriculum = curriculum
+        self.randomizer = randomizer or DomainRandomizer(strength=0.0)
+
         self.games_played: int = 0
         self.total_positions: int = 0
         self.total_wins: dict[int, int] = {0: 0, 1: 0, -1: 0}
@@ -88,7 +97,10 @@ class SelfPlayWorkerV2:
         """
         cfg = self.config
 
-        if cfg.random_decks:
+        # Deck selection: use curriculum if available, else random
+        if self.curriculum is not None:
+            deck_p0, deck_p1 = self.curriculum.deck_sampler.sample()
+        elif cfg.random_decks:
             deck_p0 = random_deck(cfg.card_pool, self.rng)
             deck_p1 = random_deck(cfg.card_pool, self.rng)
         else:
@@ -96,6 +108,14 @@ class SelfPlayWorkerV2:
             deck_p1 = None
 
         game = CRGame(deck_p0=deck_p0, deck_p1=deck_p1, seed=int(self.rng.integers(0, 2**31)))
+
+        # Apply domain randomization to initial entities (towers)
+        if self.randomizer.strength > 0:
+            self.randomizer.randomize_game(game)
+
+        # Set up opponent tracking (imperfect information)
+        card_trackers = [CardTracker(), CardTracker()]
+        elixir_trackers = [ElixirTracker(), ElixirTracker()]
 
         # Collect full trajectory with entity features + aux targets
         trajectory: list[dict] = []
@@ -135,7 +155,24 @@ class SelfPlayWorkerV2:
                 action = _action_id_to_action(action_id, player)
                 actions_for_step.append(action)
 
+                # Track opponent's plays for belief state
+                if action.card_type is not None:
+                    opponent = 1 - player
+                    card_trackers[opponent].observe_play(
+                        int(action.card_type), game.tick
+                    )
+                    cost = CARD_DEFS.get(action.card_type)
+                    if cost is not None:
+                        elixir_trackers[opponent].observe_play(
+                            int(action.card_type), cost.cost, game.tick
+                        )
+
             game.step(actions_for_step)
+
+            # Apply domain randomization to newly spawned entities
+            if self.randomizer.strength > 0:
+                self.randomizer.randomize_game(game)
+
             move_count += 1
 
         # Determine winner

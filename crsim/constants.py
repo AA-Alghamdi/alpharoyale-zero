@@ -76,5 +76,5 @@ WAIT_ACTION: int = ACTION_SPACE_SIZE - 1
 # ---------------------------------------------------------------------------
 # State representation
 # ---------------------------------------------------------------------------
-SPATIAL_CHANNELS: int = 2 * NUM_CARD_TYPES + 4  # 88 channels for 42 cards
-SCALAR_FEATURES: int = 2 + 5 * NUM_CARD_TYPES + 14  # 226 for 42 cards
+SPATIAL_CHANNELS: int = 2 * NUM_CARD_TYPES + 4  # 246 for 121 cards
+SCALAR_FEATURES: int = 2 + 5 * NUM_CARD_TYPES + 14  # 621 for 121 cards

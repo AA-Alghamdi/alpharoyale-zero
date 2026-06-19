@@ -14,9 +14,9 @@ struct PyCREngine {
 #[pymethods]
 impl PyCREngine {
     #[new]
-    #[pyo3(signature = (data_dir, deck0, deck1))]
-    fn new(data_dir: &str, deck0: Vec<String>, deck1: Vec<String>) -> PyResult<Self> {
-        let game_data = GameData::load(Path::new(data_dir))
+    #[pyo3(signature = (data_dir, deck0, deck1, level=11))]
+    fn new(data_dir: &str, deck0: Vec<String>, deck1: Vec<String>, level: i32) -> PyResult<Self> {
+        let game_data = GameData::load_at_level(Path::new(data_dir), level)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e))?;
         Ok(Self {
             engine: BattleEngine::new(game_data, deck0, deck1),
