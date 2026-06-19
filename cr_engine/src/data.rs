@@ -428,4 +428,30 @@ mod tests {
             data.projectiles.len(),
         );
     }
+
+    #[test]
+    fn test_load_gamedata_v2() {
+        let path = Path::new("gamedata_v2");
+        if !path.exists() {
+            eprintln!("gamedata_v2 not found, skipping");
+            return;
+        }
+        let data = GameData::load(path).unwrap();
+
+        // Should have significantly more characters than v1
+        assert!(data.characters.len() > 80, "Expected 80+ characters, got {}", data.characters.len());
+        assert!(data.spell_characters.len() > 80, "Expected 80+ spell chars, got {}", data.spell_characters.len());
+
+        // New cards should be present
+        assert!(data.characters.contains_key("ElectroGiant") || data.characters.contains_key("ElectroDragon"),
+            "Expected new cards in v2 data");
+
+        println!("V2: {} characters, {} spell cards, {} spells, {} buildings, {} projectiles",
+            data.characters.len(),
+            data.spell_characters.len(),
+            data.spell_others.len(),
+            data.spell_buildings.len(),
+            data.projectiles.len(),
+        );
+    }
 }

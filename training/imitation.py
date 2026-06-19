@@ -1,295 +1,257 @@
-"""Imitation learning pre-training — warm-start the network from battle data.
+"""Imitation Learning warm-start from human data.
 
-Two modes:
-  1. Value warm-start: Train the value head on deck matchup → outcome data
-     (from Kaggle 37.9M matches or scraped API data). This teaches the network
-     "which decks beat which" before any self-play.
+Instead of starting self-play from random weights (which takes days
+to learn basic CR strategy), we warm-start from human data:
 
-  2. Policy warm-start: Train the policy head from expert replay data
-     (from KataCR replay dataset or TV Royale frames with labeled actions).
+1. Download Kaggle 37.9M matches — extract value estimates per matchup
+2. Use KataCR replay dataset — extract state->action pairs
+3. Train supervised policy for 1-2 hours
+4. Switch to self-play from a competent baseline
 
-This dramatically reduces the cold-start problem — instead of 30% of training
-time learning that "deploying troops is good", the network starts with a
-competent baseline from human data.
+Both AlphaGo and AlphaStar used supervised warm-start before self-play.
+
+Data sources:
+  - Kaggle: kaggle.com/datasets/bwandowando/clash-royale-season-18-dec-0320-dataset
+  - KataCR: github.com/wty-yy/Clash-Royale-Replay-Dataset
 """
 
 from __future__ import annotations
 
+import csv
+import json
 import logging
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as f_nn  # noqa: N812
-from torch.optim import AdamW
-from torch.utils.data import DataLoader
-
-from data.dataset import BattleOutcomeDataset, KaggleBattleDataset
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, Dataset
 
 logger = logging.getLogger(__name__)
 
 
-class DeckValueNetwork(nn.Module):
-    """Lightweight network for predicting battle outcomes from decks.
+@dataclass
+class ImitationConfig:
+    """Configuration for imitation learning warm-start."""
 
-    Takes concatenated [deck_p0, deck_p1, trophies] and predicts P(p0 wins).
-    Used for warm-starting the value head / learning card embeddings.
+    data_dir: str = "data/imitation"
+    batch_size: int = 256
+    learning_rate: float = 1e-4
+    num_epochs: int = 10
+    policy_loss_weight: float = 1.0
+    value_loss_weight: float = 0.5
+    max_samples: int | None = None  # limit for debugging
+
+
+class MatchupDataset(Dataset):
+    """Dataset of deck matchup outcomes from Kaggle data.
+
+    Each sample: (deck_0_cards, deck_1_cards, winner)
+    Used to warm-start the value network:
+      V(state) ≈ P(deck_0 wins | decks, initial state)
     """
 
-    def __init__(self, input_dim: int = 402, hidden_dim: int = 512) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-            nn.Sigmoid(),
-        )
+    def __init__(self, csv_path: str, num_card_types: int = 121, max_samples: int | None = None) -> None:
+        self.data: list[tuple[np.ndarray, np.ndarray, float]] = []
+        self.num_card_types = num_card_types
+        self._load(csv_path, max_samples)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x).squeeze(-1)
+    def _load(self, csv_path: str, max_samples: int | None) -> None:
+        """Load matchup data from CSV.
+
+        Expected columns: player0_card0..7, player1_card0..7, winner
+        """
+        if not os.path.exists(csv_path):
+            logger.warning(f"Matchup data not found at {csv_path}")
+            return
+
+        with open(csv_path) as f:
+            reader = csv.DictReader(f)
+            count = 0
+            for row in reader:
+                if max_samples and count >= max_samples:
+                    break
+
+                # Encode decks as multi-hot vectors
+                deck0 = np.zeros(self.num_card_types, dtype=np.float32)
+                deck1 = np.zeros(self.num_card_types, dtype=np.float32)
+
+                for i in range(8):
+                    c0 = int(row.get(f"player0_card{i}", 0))
+                    c1 = int(row.get(f"player1_card{i}", 0))
+                    if 0 <= c0 < self.num_card_types:
+                        deck0[c0] = 1.0
+                    if 0 <= c1 < self.num_card_types:
+                        deck1[c1] = 1.0
+
+                winner = float(row.get("winner", 0.5))
+                self.data.append((deck0, deck1, winner))
+                count += 1
+
+        logger.info(f"Loaded {len(self.data)} matchup samples from {csv_path}")
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __getitem__(self, idx: int):
+        deck0, deck1, winner = self.data[idx]
+        return deck0, deck1, np.float32(winner)
 
 
-class CardEmbeddingModel(nn.Module):
-    """Learn card embeddings from battle outcome data.
+class ReplayDataset(Dataset):
+    """Dataset of expert replay trajectories for policy warm-start.
 
-    Each card gets a learned embedding. Deck = average of card embeddings.
-    Matchup = interaction of deck embeddings → predicted outcome.
-
-    The learned card embeddings can then be transferred to the main network
-    to provide a meaningful initialization for card representations.
+    Each sample: (state, action, value)
+    - state: game state encoding at decision point
+    - action: expert's chosen action
+    - value: game outcome from this state (1.0 win, 0.0 loss)
     """
 
-    def __init__(self, vocab_size: int = 200, embed_dim: int = 64) -> None:
-        super().__init__()
-        self.embed = nn.Embedding(vocab_size, embed_dim)
-        self.interaction = nn.Sequential(
-            nn.Linear(embed_dim * 2 + 2, 256),  # +2 for trophies
-            nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Linear(128, 1),
-            nn.Sigmoid(),
+    def __init__(self, replay_dir: str, max_samples: int | None = None) -> None:
+        self.states: list[np.ndarray] = []
+        self.actions: list[int] = []
+        self.values: list[float] = []
+        self._load(replay_dir, max_samples)
+
+    def _load(self, replay_dir: str, max_samples: int | None) -> None:
+        if not os.path.exists(replay_dir):
+            logger.warning(f"Replay data not found at {replay_dir}")
+            return
+
+        replay_files = sorted(Path(replay_dir).glob("*.npz"))
+        count = 0
+        for fp in replay_files:
+            if max_samples and count >= max_samples:
+                break
+            try:
+                data = np.load(fp)
+                self.states.extend(data["states"])
+                self.actions.extend(data["actions"])
+                self.values.extend(data["values"])
+                count += len(data["states"])
+            except Exception:
+                logger.warning(f"Failed to load {fp}")
+
+        logger.info(f"Loaded {len(self.states)} replay samples from {replay_dir}")
+
+    def __len__(self) -> int:
+        return len(self.states)
+
+    def __getitem__(self, idx: int):
+        return (
+            self.states[idx].astype(np.float32),
+            np.int64(self.actions[idx]),
+            np.float32(self.values[idx]),
         )
 
-    def embed_deck(self, deck_ids: torch.Tensor) -> torch.Tensor:
-        """Embed a deck (B, 8) → (B, embed_dim) via mean pooling."""
-        embs = self.embed(deck_ids)  # (B, 8, D)
-        return embs.mean(dim=1)  # (B, D)
 
-    def forward(
-        self,
-        deck_p0: torch.Tensor,
-        deck_p1: torch.Tensor,
-        trophies: torch.Tensor,
-    ) -> torch.Tensor:
-        e0 = self.embed_deck(deck_p0)
-        e1 = self.embed_deck(deck_p1)
-        combined = torch.cat([e0, e1, trophies], dim=-1)
-        return self.interaction(combined).squeeze(-1)
-
-
-def train_value_warmstart(
-    battles_path: str,
-    output_path: str = "checkpoints/value_warmstart.pt",
-    card_vocab_size: int = 200,
-    batch_size: int = 2048,
-    epochs: int = 10,
-    lr: float = 1e-3,
-    max_samples: int | None = None,
+def train_imitation(
+    model: nn.Module,
+    config: ImitationConfig,
     device: str = "cuda",
-) -> DeckValueNetwork:
-    """Train a value warm-start model from battle outcome data.
+) -> dict:
+    """Run imitation learning warm-start.
 
-    This can be from API-scraped data (JSONL) or Kaggle CSV.
+    Phase 1: Train value network on matchup data
+    Phase 2: Train policy + value on replay data (if available)
+
+    Returns training metrics.
     """
-    logger.info("Loading battle data from %s", battles_path)
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
-    if battles_path.endswith(".csv"):
-        dataset = KaggleBattleDataset(battles_path, card_vocab_size, max_samples)
-    else:
-        dataset = BattleOutcomeDataset(battles_path, card_vocab_size, max_samples)
+    metrics = {"value_loss": [], "policy_loss": [], "total_loss": []}
 
-    logger.info("Loaded %d battles", len(dataset))
+    # Phase 1: Matchup value training
+    matchup_path = os.path.join(config.data_dir, "matchups.csv")
+    if os.path.exists(matchup_path):
+        logger.info("Phase 1: Training value network on matchup data")
+        matchup_dataset = MatchupDataset(matchup_path, max_samples=config.max_samples)
+        if len(matchup_dataset) > 0:
+            loader = DataLoader(matchup_dataset, batch_size=config.batch_size, shuffle=True)
+            for epoch in range(config.num_epochs):
+                epoch_loss = _train_matchup_epoch(model, loader, optimizer, device)
+                metrics["value_loss"].append(epoch_loss)
+                logger.info(f"Matchup epoch {epoch}: loss={epoch_loss:.4f}")
 
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-    )
-
-    input_dim = card_vocab_size * 2 + 2
-    model = DeckValueNetwork(input_dim=input_dim).to(device)
-    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    criterion = nn.BCELoss()
-
-    best_loss = float("inf")
-    for epoch in range(epochs):
-        model.train()
-        total_loss = 0.0
-        correct = 0
-        total = 0
-
-        for batch in loader:
-            features = batch["features"].to(device)
-            targets = batch["winner"].to(device)
-
-            preds = model(features)
-            loss = criterion(preds, targets)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            total_loss += loss.item() * len(targets)
-            correct += ((preds > 0.5).float() == targets).sum().item()
-            total += len(targets)
-
-        avg_loss = total_loss / max(total, 1)
-        accuracy = correct / max(total, 1)
-        logger.info(
-            "Epoch %d/%d: loss=%.4f accuracy=%.4f",
-            epoch + 1, epochs, avg_loss, accuracy,
-        )
-
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            torch.save(model.state_dict(), output_path)
-            logger.info("Saved best model to %s", output_path)
-
-    return model
-
-
-def transfer_value_weights(
-    warmstart_model: DeckValueNetwork,
-    main_model: nn.Module,
-) -> None:
-    """Transfer learned weights from the warm-start model to the main network's value head.
-
-    Copies the final hidden→output layers from warmstart to the main model's
-    value head, adapting for dimension mismatches when necessary.
-    """
-    with torch.no_grad():
-        # DeckValueNetwork layers: L(in,512) → L(512,512) → L(512,256) → L(256,1)
-        ws_layers = [m for m in warmstart_model.net if isinstance(m, nn.Linear)]
-
-        if not hasattr(main_model, "value_head"):
-            logger.warning("Main model has no value_head — skipping transfer")
-            return
-
-        # Find linear layers in the main model's value head
-        main_layers: list[nn.Linear] = []
-        for m in main_model.value_head.modules():
-            if isinstance(m, nn.Linear):
-                main_layers.append(m)
-
-        if not main_layers or not ws_layers:
-            logger.warning("Could not find layers to transfer")
-            return
-
-        # Transfer final layer (256→1) if shapes match
-        ws_final = ws_layers[-1]
-        main_final = main_layers[-1]
-        if ws_final.weight.shape == main_final.weight.shape:
-            main_final.weight.copy_(ws_final.weight)
-            if ws_final.bias is not None and main_final.bias is not None:
-                main_final.bias.copy_(ws_final.bias)
-            logger.info(
-                "Transferred final layer (%s → %s)",
-                ws_final.weight.shape, main_final.weight.shape,
-            )
-
-        # Transfer second-to-last layer (512→256) if shapes match
-        if len(ws_layers) >= 2 and len(main_layers) >= 2:
-            ws_prev = ws_layers[-2]
-            main_prev = main_layers[-2]
-            if ws_prev.weight.shape == main_prev.weight.shape:
-                main_prev.weight.copy_(ws_prev.weight)
-                if ws_prev.bias is not None and main_prev.bias is not None:
-                    main_prev.bias.copy_(ws_prev.bias)
-                logger.info(
-                    "Transferred penultimate layer (%s → %s)",
-                    ws_prev.weight.shape, main_prev.weight.shape,
+    # Phase 2: Replay policy training
+    replay_dir = os.path.join(config.data_dir, "replays")
+    if os.path.exists(replay_dir):
+        logger.info("Phase 2: Training policy on replay data")
+        replay_dataset = ReplayDataset(replay_dir, max_samples=config.max_samples)
+        if len(replay_dataset) > 0:
+            loader = DataLoader(replay_dataset, batch_size=config.batch_size, shuffle=True)
+            for epoch in range(config.num_epochs):
+                p_loss, v_loss = _train_replay_epoch(
+                    model, loader, optimizer, device, config
                 )
-            else:
-                # Partial transfer: copy overlapping dimensions
-                min_out = min(ws_prev.weight.shape[0], main_prev.weight.shape[0])
-                min_in = min(ws_prev.weight.shape[1], main_prev.weight.shape[1])
-                main_prev.weight[:min_out, :min_in].copy_(
-                    ws_prev.weight[:min_out, :min_in]
-                )
-                logger.info(
-                    "Partial transfer penultimate layer (%dx%d of %s)",
-                    min_out, min_in, main_prev.weight.shape,
-                )
+                metrics["policy_loss"].append(p_loss)
+                metrics["total_loss"].append(p_loss + v_loss)
+                logger.info(f"Replay epoch {epoch}: policy_loss={p_loss:.4f}, value_loss={v_loss:.4f}")
 
-        logger.info("Value warm-start weight transfer complete")
+    return metrics
 
 
-class PolicyWarmstart:
-    """Warm-start the policy network from expert replay data.
+def _train_matchup_epoch(model, loader, optimizer, device) -> float:
+    model.train()
+    total_loss = 0.0
+    n_batches = 0
 
-    Uses the KataCR replay dataset format: episodes of (state, action) pairs
-    from expert play, training the policy via behavior cloning.
-    """
+    for deck0, deck1, winner in loader:
+        deck0 = deck0.to(device)
+        deck1 = deck1.to(device)
+        winner = winner.to(device)
 
-    def __init__(
-        self,
-        model: nn.Module,
-        device: str = "cuda",
-        lr: float = 3e-4,
-    ) -> None:
-        self.model = model.to(device)
-        self.device = device
-        self.optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+        # Concatenate decks as input features
+        features = torch.cat([deck0, deck1], dim=-1)
 
-    def train_epoch(self, dataloader: DataLoader) -> dict[str, float]:
-        """Train one epoch of behavior cloning."""
-        self.model.train()
-        total_loss = 0.0
-        total_policy_loss = 0.0
-        total_value_loss = 0.0
-        n_batches = 0
+        # Forward pass — expect model to have a value head
+        # This is a simplified interface; actual model may need adaptation
+        optimizer.zero_grad()
 
-        for batch in dataloader:
-            spatial = batch["spatial"].to(self.device)
-            scalar = batch["scalar"].to(self.device)
-            target_policy = batch["policy"].to(self.device)
-            target_value = batch["value"].to(self.device)
+        if hasattr(model, "predict_matchup_value"):
+            value_pred = model.predict_matchup_value(features)
+        else:
+            # Generic: use the model's value head with dummy state
+            _, value_pred = model(features)
 
-            # Forward
-            policy_logits, value, _ = self.model(spatial, scalar)
+        loss = F.mse_loss(value_pred.squeeze(-1), winner)
+        loss.backward()
+        optimizer.step()
 
-            # Policy loss (KL divergence from expert policy)
-            log_probs = f_nn.log_softmax(policy_logits, dim=-1)
-            policy_loss = f_nn.kl_div(log_probs, target_policy, reduction="batchmean")
+        total_loss += loss.item()
+        n_batches += 1
 
-            # Value loss (MSE)
-            value_loss = f_nn.mse_loss(value, target_value)
+    return total_loss / max(1, n_batches)
 
-            # Combined loss
-            loss = policy_loss + value_loss
 
-            self.optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-            self.optimizer.step()
+def _train_replay_epoch(model, loader, optimizer, device, config) -> tuple[float, float]:
+    model.train()
+    total_p_loss = 0.0
+    total_v_loss = 0.0
+    n_batches = 0
 
-            total_loss += loss.item()
-            total_policy_loss += policy_loss.item()
-            total_value_loss += value_loss.item()
-            n_batches += 1
+    for states, actions, values in loader:
+        states = states.to(device)
+        actions = actions.to(device)
+        values = values.to(device)
 
-        return {
-            "loss": total_loss / max(n_batches, 1),
-            "policy_loss": total_policy_loss / max(n_batches, 1),
-            "value_loss": total_value_loss / max(n_batches, 1),
-        }
+        optimizer.zero_grad()
+
+        policy_logits, value_pred = model(states)
+
+        p_loss = F.cross_entropy(policy_logits, actions)
+        v_loss = F.mse_loss(value_pred.squeeze(-1), values)
+
+        loss = config.policy_loss_weight * p_loss + config.value_loss_weight * v_loss
+        loss.backward()
+        optimizer.step()
+
+        total_p_loss += p_loss.item()
+        total_v_loss += v_loss.item()
+        n_batches += 1
+
+    return total_p_loss / max(1, n_batches), total_v_loss / max(1, n_batches)

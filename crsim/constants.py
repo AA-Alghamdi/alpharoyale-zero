@@ -58,7 +58,7 @@ MAX_ELIXIR: float = 10.0
 # Entities
 # ---------------------------------------------------------------------------
 MAX_ENTITIES: int = 128  # per game (both sides combined)
-NUM_CARD_TYPES: int = 42  # 0-41 inclusive
+NUM_CARD_TYPES: int = 121  # 0-120 inclusive (all CR cards as of June 2026)
 
 # Movement speed tiers (tiles per second)
 SPEED_SLOW: float = 1.0
