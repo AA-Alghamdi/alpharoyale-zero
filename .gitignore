@@ -29,3 +29,4 @@ venv/
 
 # pytest
 .pytest_cache/
+cr_engine/target/
