@@ -737,6 +737,7 @@ class CRStarNet(nn.Module):
         entity_mask: torch.Tensor | None = None,
         hidden: tuple[torch.Tensor, torch.Tensor] | None = None,
         temperature: float = 1.0,
+        belief_features: torch.Tensor | None = None,
     ) -> tuple[int, int, int, torch.Tensor, dict]:
         """Autoregressive inference: sample card→x→y sequentially.
 
@@ -746,6 +747,7 @@ class CRStarNet(nn.Module):
         with torch.no_grad():
             core_out, new_hidden = self.encode(
                 spatial, scalar, entity_features, entity_mask, hidden,
+                belief_features=belief_features,
             )
             card_idx, x_pos, y_pos, log_prob = self.policy_head.sample(
                 core_out, temperature=temperature,
