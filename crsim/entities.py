@@ -85,11 +85,16 @@ class Entity:
 
     # Rage
     rage_timer: float = 0.0
-    rage_speed_mult: float = 1.35  # 35% boost
+    rage_speed_mult: float = 1.4  # 40% boost (confirmed from CR data)
 
     # Poison
     poison_timer: float = 0.0
     poison_dps: float = 0.0
+
+    # Hidden stats (aggro, collision, mass)
+    sight_range: float = 5.5  # aggro range in tiles (default for most troops)
+    collision_radius: float = 0.5  # collision size in tiles
+    mass: float = 6.0  # determines push interaction (higher = harder to push)
 
     # Projectile
     has_projectile: bool = False
@@ -217,7 +222,11 @@ def entity_from_card(
         has_shield=card_def.has_shield,
         shield_hp=card_def.shield_hp,
         load_time=card_def.load_time,
+        sight_range=card_def.sight_range,
+        collision_radius=card_def.collision_radius,
+        mass=getattr(card_def, 'mass', 6.0),
         has_projectile=card_def.has_projectile,
+        projectile_speed=getattr(card_def, 'projectile_speed', 0.0),
         death_spawn_card_type=card_def.death_spawn_card,
         death_spawn_count=card_def.death_spawn_count,
         death_spawn_hp=card_def.death_spawn_hp,

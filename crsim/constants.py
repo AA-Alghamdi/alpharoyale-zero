@@ -38,11 +38,19 @@ TOWER_ATTACK_INTERVAL: float = 1.0  # seconds between attacks
 # ---------------------------------------------------------------------------
 # Timing
 # ---------------------------------------------------------------------------
-TICK_DURATION: float = 0.5  # seconds per simulation tick
+# The real game uses ~20 ticks/sec (50ms) internally for deterministic sim.
+# We match this for physics accuracy.
+TICK_DURATION: float = 0.05  # 50ms per tick (matches real game internal rate)
+TICKS_PER_SECOND: int = 20   # 1.0 / TICK_DURATION
 
-REGULAR_TIME_TICKS: int = 360  # 3 minutes = 180s / 0.5
-OVERTIME_TICKS: int = 360
-SUDDEN_DEATH_TICKS: int = 360
+# For RL: the agent only makes decisions every DECISION_INTERVAL ticks.
+# This reduces MCTS calls from 7200 to 720 per game (10× faster training).
+# Between decisions, the game advances with the current action (wait).
+DECISION_INTERVAL: int = 10  # agent decides every 0.5 seconds (10 ticks × 50ms)
+
+REGULAR_TIME_TICKS: int = 3600  # 3 minutes = 180s / 0.05
+OVERTIME_TICKS: int = 2400       # 2 minutes = 120s / 0.05 (double elixir)
+SUDDEN_DEATH_TICKS: int = 1200   # 1 minute = 60s / 0.05 (triple elixir)
 
 TOTAL_MAX_TICKS: int = REGULAR_TIME_TICKS + OVERTIME_TICKS + SUDDEN_DEATH_TICKS
 
@@ -60,11 +68,53 @@ MAX_ELIXIR: float = 10.0
 MAX_ENTITIES: int = 128  # per game (both sides combined)
 NUM_CARD_TYPES: int = 125  # 0-124 inclusive (all CR cards as of June 2026)
 
-# Movement speed tiers (tiles per second)
-SPEED_SLOW: float = 1.0
-SPEED_MEDIUM: float = 1.5
-SPEED_FAST: float = 2.5
-SPEED_VERY_FAST: float = 3.0
+# Movement speed tiers
+# Internal CR values: Slow=45, Medium=60, Fast=90, Very Fast=120
+# Conversion: tiles_per_sec = internal_speed / 30
+# But arena is 18 tiles wide, 32 tiles tall
+# Real speeds measured as tiles/sec:
+SPEED_SLOW: float = 1.5        # 45/30 = Golem, PEKKA, Giant, Royal Giant
+SPEED_MEDIUM: float = 2.0      # 60/30 = Knight, Valkyrie, Witch, Musketeer, Prince
+SPEED_FAST: float = 3.0        # 90/30 = Baby Dragon, Mini PEKKA, Minions, Guards
+SPEED_VERY_FAST: float = 4.0   # 120/30 = Hog Rider, Goblins, Elite Barbarians
+
+# Rage multiplier (confirmed from CR data: 1.4x, NOT 1.35x)
+RAGE_MULTIPLIER: float = 1.4
+RAGE_DURATION: float = 7.5  # seconds (at Tournament Standard, Rage spell duration is level-dependent but base ~7.5)
+
+# Slowdown multiplier (Ice Wizard, Snowball, etc.)
+SLOW_MULTIPLIER: float = 0.65  # 35% speed reduction
+SLOW_DURATION_ICE_WIZ: float = 2.0  # seconds
+SLOW_DURATION_SNOWBALL: float = 2.5
+
+# Freeze duration (spell)
+FREEZE_DURATION: float = 4.0  # seconds at Tournament Standard
+
+# Poison duration and tick
+POISON_DURATION: float = 8.0  # seconds
+
+# Tornado pull speed
+TORNADO_PULL_SPEED: float = 2.0  # tiles/sec toward center
+TORNADO_DURATION: float = 1.0  # seconds
+
+# Deploy time (standard for all troops)
+DEPLOY_TIME_STANDARD: float = 1.0  # seconds
+
+# Sight range (aggro range) defaults
+SIGHT_RANGE_DEFAULT: float = 5.5  # most troops
+SIGHT_RANGE_BUILDING_TARGETER: float = 7.5  # Giant, Golem, Hog Rider
+SIGHT_RANGE_PEKKA: float = 5.0
+SIGHT_RANGE_MUSKETEER: float = 6.0
+SIGHT_RANGE_HOG: float = 9.5
+SIGHT_RANGE_PRINCESS: float = 9.5
+
+# Pushback values (tiles)
+PUSHBACK_FIREBALL: float = 1.8
+PUSHBACK_LOG: float = 1.5
+PUSHBACK_BOWLER: float = 1.0
+
+# Tower damage reduction for spells
+SPELL_TOWER_DAMAGE_FACTOR: float = 0.35  # spells do 35% damage to towers
 
 # ---------------------------------------------------------------------------
 # Action space

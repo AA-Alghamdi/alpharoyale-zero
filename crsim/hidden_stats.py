@@ -12,23 +12,25 @@ time that can be "skipped" from the first hit timer.
 
 from __future__ import annotations
 
-# Movement speed tiers (tiles per minute → tiles per second)
-# Source: Fandom wiki "speed number = tiles per minute"
+# Movement speed tiers (internal CR units → tiles per second)
+# Conversion factor: tiles_per_sec = internal_speed / 30
+# Based on measured game data:
+#   Hog Rider (120) crosses ~14 tiles in ~3.5s = 4.0 tiles/sec
+#   Knight (60) crosses ~14 tiles in ~7s = 2.0 tiles/sec
+#   Giant (45) crosses ~14 tiles in ~9.3s = 1.5 tiles/sec
 SPEED_TIERS = {
-    "Very Slow": 30,   # 0.5 tiles/sec
-    "Slow": 45,        # 0.75 tiles/sec
-    "Medium": 60,      # 1.0 tiles/sec
-    "Fast": 90,        # 1.5 tiles/sec
-    "Very Fast": 120,  # 2.0 tiles/sec
+    "Slow": 45,        # 1.5 tiles/sec (Golem, PEKKA, Giant)
+    "Medium": 60,      # 2.0 tiles/sec (Knight, Valkyrie, Witch)
+    "Fast": 90,        # 3.0 tiles/sec (Baby Dragon, Mini PEKKA, Minions)
+    "Very Fast": 120,  # 4.0 tiles/sec (Hog Rider, Goblins, Elite Barbs)
 }
 
-# Our cards.py uses tiles/sec. Mapping:
+# Our cards.py uses tiles/sec directly:
 SPEED_TO_TILES_PER_SEC = {
-    30: 0.5,
-    45: 0.75,
-    60: 1.0,
-    90: 1.5,
-    120: 2.0,
+    45: 1.5,
+    60: 2.0,
+    90: 3.0,
+    120: 4.0,
 }
 
 # Projectile speeds (tiles per minute → rough tiles per second)
@@ -107,7 +109,7 @@ TROOP_MASS = {
 }
 
 # Buff/debuff multipliers (for spell effects)
-RAGE_MULTIPLIER = 1.35  # 35% boost to attack/move speed
+RAGE_MULTIPLIER = 1.4  # 40% boost to attack/move speed (confirmed from CR data)
 FREEZE_DURATION_BASE = 4.0  # seconds at tournament standard
 POISON_SLOW = 0.0  # poison no longer slows (removed in 2019)
 SLOW_MULTIPLIER = 0.65  # 35% slow (Ice Wizard, Giant Snowball)
