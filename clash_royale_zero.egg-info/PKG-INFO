@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: clash-royale-zero
+Version: 0.1.0
+Summary: AlphaZero-style reinforcement learning agent for Clash Royale
+Requires-Python: >=3.10
+Requires-Dist: torch>=2.1.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: ray[default]>=2.9.0
+Requires-Dist: tensorboard>=2.15.0
+Requires-Dist: tqdm>=4.66.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.0; extra == "dev"
+Requires-Dist: ruff>=0.1.0; extra == "dev"
+Requires-Dist: mypy>=1.7.0; extra == "dev"
