@@ -331,7 +331,8 @@ CARD_DEFS: dict[CardType, CardDef] = {
         target_mode=TargetMode.BUILDINGS,
         is_flying=True,
         has_hero=True,
-        mass=6,),
+        mass=6,
+        tower_damage=195.0,),
     CardType.WITCH: CardDef(
         card_type=CardType.WITCH,
         kind=EntityKind.TROOP,
@@ -385,7 +386,8 @@ CARD_DEFS: dict[CardType, CardDef] = {
         death_spawn_count=2,
         death_spawn_hp=1049.0,
         death_spawn_dps=46.0,
-        mass=20,),
+        mass=20,
+        tower_damage=388.0,),
     CardType.SKELETONS: CardDef(
         card_type=CardType.SKELETONS,
         kind=EntityKind.TROOP,
@@ -577,7 +579,8 @@ CARD_DEFS: dict[CardType, CardDef] = {
         sight_range=5.0,
         target_mode=TargetMode.GROUND,
         collision_radius=1.0,
-        mass=15,),
+        mass=15,
+        tower_damage=535.0,),
     CardType.HOG_RIDER: CardDef(
         card_type=CardType.HOG_RIDER,
         kind=EntityKind.TROOP,
@@ -902,7 +905,8 @@ CARD_DEFS: dict[CardType, CardDef] = {
         target_mode=TargetMode.BUILDINGS,
         collision_radius=0.7,
         has_hero=True,
-        mass=8,),
+        mass=8,
+        tower_damage=113.0,),
     CardType.MEGA_MINION: CardDef(
         card_type=CardType.MEGA_MINION,
         kind=EntityKind.TROOP,

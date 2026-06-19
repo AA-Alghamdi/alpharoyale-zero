@@ -734,6 +734,9 @@ class CRGame:
                 dmg = current_dps * entity.attack_interval
             else:
                 dmg = entity.damage_per_hit
+                # Charge hit deals 2× damage (Prince, Dark Prince, Ram Rider, etc.)
+                if entity.next_hit_is_charge:
+                    dmg *= 2.0
 
             card_def = CARD_DEFS.get(entity.card_type)
             stuns = card_def.stuns if card_def else False
