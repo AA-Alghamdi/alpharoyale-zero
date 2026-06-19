@@ -1,7 +1,6 @@
 //! Python bindings via PyO3
 
 use pyo3::prelude::*;
-use pyo3::types::PyList;
 use std::path::Path;
 
 use crate::data::GameData;
