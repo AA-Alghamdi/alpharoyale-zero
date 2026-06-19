@@ -214,38 +214,3 @@ clash-royale-zero/
     └── test_mcts.py          # MCTS tests
 ```
 
-## Card Roster (20 Core Cards)
-
-**Troops**: Knight, Archers, Musketeer, Giant, Mini P.E.K.K.A, Valkyrie, Wizard, Hog Rider, Minions, Baby Dragon, Skeleton Army, Goblin Barrel
-
-**Spells**: Fireball, Arrows, Zap, Lightning
-
-**Buildings**: Cannon, Inferno Tower, Tombstone, Elixir Collector
-
-## Honest Assessment
-
-> **Can this beat the world's best human player in 24 hours?**
-
-Probably not — but it can get *surprisingly* strong. Here's why:
-
-**What's achievable in 24h:**
-- Master basic mechanics (elixir management, card placement, timing)
-- Learn card interactions and counters
-- Develop coherent push/defense strategies
-- Beat intermediate-level play consistently
-- Elo ~2000+ against random baseline
-
-**What needs more time:**
-- Subtle timing optimizations (prediction plays, spell timing)
-- Full card roster (100+ cards means exponentially more interactions)
-- Real-game integration (screen capture, touch simulation, latency)
-- Meta-game adaptation (reading opponent's deck, adapting mid-match)
-
-**To actually beat the world's best, you'd need:**
-- 1–2 weeks of training on 8× A100s
-- Full 100+ card simulator
-- Real-game interface for online play
-- Opponent modeling and adaptation
-- Population-based training for robustness
-
-But the foundation built here — the simulator, network, MCTS, and training pipeline — is exactly what you need to scale up.
