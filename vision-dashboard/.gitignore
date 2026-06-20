@@ -1,0 +1,8 @@
+# ONNX model weights (too large for git, use download_weights.sh)
+backend/weights/*.onnx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
