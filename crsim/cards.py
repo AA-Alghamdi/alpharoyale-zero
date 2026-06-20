@@ -2378,3 +2378,27 @@ CARD_DEFS: dict[CardType, CardDef] = {
 
 
 NUM_CARD_TYPES: int = 125
+
+
+# Overlay authentic stats from the extracted Supercell game data
+# (cr_engine/gamedata_v2/*.csv) so the simulator matches the real game. The
+# CSVs are the single source of truth; the literals above act as the schema
+# (special-mechanic flags) and as a fallback for the few cards with no CSV
+# entry. See crsim/gamedata.py.
+def _apply_authentic_overlay() -> None:
+    global CARD_DEFS, AUTHENTIC_STAT_REPORT
+    try:
+        from crsim.gamedata import apply_authentic_stats
+
+        CARD_DEFS, AUTHENTIC_STAT_REPORT = apply_authentic_stats(CARD_DEFS)
+    except Exception:  # pragma: no cover - never let data issues break import
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "Failed to apply authentic stat overlay; using hand-coded stats."
+        )
+        AUTHENTIC_STAT_REPORT = {}
+
+
+AUTHENTIC_STAT_REPORT: dict = {}
+_apply_authentic_overlay()
