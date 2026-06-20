@@ -359,6 +359,43 @@ class CRGame:
         """Apply a champion's ability effect, dispatched by card type."""
         if champ.card_type == CardType.SKELETON_KING:
             self._ability_skeleton_king(champ)
+        elif champ.card_type == CardType.ARCHER_QUEEN:
+            self._ability_archer_queen(champ)
+        elif champ.card_type == CardType.GOLDEN_KNIGHT:
+            self._ability_golden_knight(champ)
+
+    def _ability_archer_queen(self, champ: Entity) -> None:
+        """Cloaking Cape: go invisible and fire much faster for the duration."""
+        duration = 3.5
+        champ.invisible_timer = duration
+        champ.attack_speed_timer = duration
+        # Hit speed roughly 1.2s -> ~0.7s while cloaked (~1.7x faster).
+        champ.attack_speed_mult = 1.7
+
+    def _ability_golden_knight(self, champ: Entity) -> None:
+        """Dashing Dash: dash through nearby enemies, damaging each in the chain.
+
+        Approximated as a single forward dash: every enemy unit within
+        ``dash_range`` ahead takes the Golden Knight's hit damage, and he
+        repositions to the farthest one he struck.
+        """
+        dash_range = 5.0
+        forward = 1.0 if champ.owner == 0 else -1.0
+        hit: list[Entity] = []
+        for other in self.entities:
+            if not (other.alive and other.owner != champ.owner):
+                continue
+            if other.is_tower or other.is_building:
+                continue
+            if (other.y - champ.y) * forward < 0:
+                continue  # only enemies ahead in the lane direction
+            if champ.distance_to(other) <= dash_range:
+                hit.append(other)
+        for other in hit:
+            other.take_damage(self._crown_adjusted_entity(champ, champ.damage_per_hit, other))
+        if hit:
+            target = max(hit, key=lambda e: (e.y - champ.y) * forward)
+            champ.x, champ.y = target.x, target.y
 
     def _ability_skeleton_king(self, champ: Entity) -> None:
         """Soul Summoning: raise a swarm of skeletons around the King."""
@@ -630,6 +667,10 @@ class CRGame:
             if not other.is_deployed:
                 continue
 
+            # Invisible units (Archer Queen cloak) can't be targeted
+            if other.invisible_timer > 0:
+                continue
+
             # Distance calculation accounts for collision radii
             dist = entity.distance_to(other) - other.collision_radius
             if dist > max_range:
@@ -850,6 +891,9 @@ class CRGame:
         tick_dt = TICK_DURATION
         if entity.rage_timer > 0:
             tick_dt *= entity.rage_speed_mult
+        # Ability attack-speed boost (Archer Queen cloak)
+        if entity.attack_speed_timer > 0:
+            tick_dt *= entity.attack_speed_mult
 
         entity.attack_timer -= tick_dt
         if entity.attack_timer <= 0:
@@ -1134,6 +1178,15 @@ class CRGame:
                 e.ability_active_timer -= TICK_DURATION
                 if e.ability_active_timer < 0:
                     e.ability_active_timer = 0.0
+            if e.invisible_timer > 0:
+                e.invisible_timer -= TICK_DURATION
+                if e.invisible_timer < 0:
+                    e.invisible_timer = 0.0
+            if e.attack_speed_timer > 0:
+                e.attack_speed_timer -= TICK_DURATION
+                if e.attack_speed_timer <= 0:
+                    e.attack_speed_timer = 0.0
+                    e.attack_speed_mult = 1.0
 
     def _process_death_spawns(self) -> None:
         """Handle death effects: death damage + spawn units (Golem→Golemites, etc.)."""

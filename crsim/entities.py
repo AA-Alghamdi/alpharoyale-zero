@@ -50,6 +50,9 @@ class Entity:
     ability_cooldown: float = 0.0  # max seconds between activations
     ability_cooldown_timer: float = 0.0  # remaining cooldown; <=0 => ready
     ability_active_timer: float = 0.0  # remaining duration of an active effect
+    invisible_timer: float = 0.0  # while >0 the unit cannot be targeted
+    attack_speed_timer: float = 0.0  # while >0 attacks are sped up
+    attack_speed_mult: float = 1.0  # attack-timer multiplier during the boost
 
     # Building fields
     is_building: bool = False
