@@ -305,6 +305,36 @@ def crown_tower_damage_percent(game: GameData, card_type) -> float:
     return 0.0
 
 
+def death_spawn_unit_stats(game: GameData, card_type) -> tuple[float, float] | None:
+    """Authentic ``(hp, dps)`` of a card's death-spawned unit, or None.
+
+    The parent's character/building row names the spawned unit in
+    ``death_spawn_character`` (Golem -> ``Golemite``, Lava Hound -> ``LavaPups``);
+    we then scale the *spawned* unit's own row to tournament level. Bomb-style
+    death spawns (Giant Skeleton -> ``GiantSkeletonBomb``) have no hitpoints and
+    are modelled as death damage instead, so they return None here.
+    """
+    card = game.lookup(card_type)
+    if not card:
+        return None
+    sc = card.get("sc_key")
+    parent = game.character_stats(sc) or game.building_stats(sc)
+    if not parent:
+        return None
+    spawn_name = parent.get("death_spawn_character")
+    if not spawn_name:
+        return None
+    unit = game.character_stats(spawn_name)
+    if not unit or not unit.get("hitpoints"):
+        return None
+    rarity = unit.get("rarity") or "Common"
+    hp = game.scale(unit.get("hitpoints") or 0, rarity)
+    dmg = game.scale(unit.get("damage") or 0, rarity)
+    hit_speed = (unit.get("hit_speed") or 0) / 1000.0
+    dps = dmg / hit_speed if hit_speed > 0 else 0.0
+    return hp, dps
+
+
 def build_name_map(game: GameData, card_types) -> dict:
     """For diagnostics: map each CardType to its matched card dict."""
     return {ct: game.lookup(ct) for ct in card_types if game.lookup(ct)}
@@ -335,6 +365,19 @@ def apply_authentic_stats(card_defs: dict, *, data_dir: Path | None = None) -> t
         ctd = crown_tower_damage_percent(game, card_type)
         if ctd:
             core["crown_tower_damage_percent"] = ctd
+
+        # Death-spawned units (Golem -> Golemites, Lava Hound -> pups): scale the
+        # *spawned* unit's own row. Only refine an existing hand-coded death
+        # spawn, and never zero out a value the data omits (some spawned units
+        # carry their damage on a projectile row, e.g. Lava Pups).
+        if base.death_spawn_count > 0:
+            ds = death_spawn_unit_stats(game, card_type)
+            if ds:
+                ds_hp, ds_dps = ds
+                if ds_hp > 0:
+                    core["death_spawn_hp"] = ds_hp
+                if ds_dps > 0:
+                    core["death_spawn_dps"] = ds_dps
 
         if not core:
             continue

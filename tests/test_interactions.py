@@ -412,3 +412,17 @@ def test_rocket_and_log_have_authentic_crown_reduction():
     assert CARD_DEFS[CardType.ROCKET].crown_tower_damage_percent == -75.0
     assert CARD_DEFS[CardType.THE_LOG].crown_tower_damage_percent == -80.0
     assert CARD_DEFS[CardType.MINER].crown_tower_damage_percent == -75.0
+
+
+# ---------------------------------------------------------------------------
+# Death-spawned units carry authentic stats (scaled by their OWN row)
+# ---------------------------------------------------------------------------
+
+
+def test_golem_spawns_authentic_golemites():
+    golem = CARD_DEFS[CardType.GOLEM]
+    # Golem spawns 2 Golemites; each is an Epic unit (~1040 HP, ~20 DPS at L11),
+    # scaled from the Golemite row -- not the Golem's own stats.
+    assert golem.death_spawn_count == 2
+    assert golem.death_spawn_hp == pytest.approx(1040.0, rel=0.02)
+    assert golem.death_spawn_dps == pytest.approx(19.8, rel=0.05)
