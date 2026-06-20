@@ -886,6 +886,9 @@ CARD_DEFS: dict[CardType, CardDef] = {
         attack_range=0.7,
         sight_range=5.5,
         target_mode=TargetMode.BUILDINGS,
+        has_charge=True,
+        charge_speed=4.0,
+        charge_damage_mult=1.0,  # the 286 ram already is the charge-contact hit
         has_evolution=True,
     ),
     CardType.INFERNO_DRAGON: CardDef(

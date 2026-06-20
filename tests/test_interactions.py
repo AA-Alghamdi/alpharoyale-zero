@@ -665,6 +665,54 @@ def test_evolved_mega_knight_knocks_target_back():
     assert target.y > y0  # pushed away from the Mega Knight
 
 
+def test_charge_hit_deals_double_not_quadruple_damage():
+    # damage_per_hit already bakes in the 2x charge multiplier; the combat path
+    # must not double it again (previously charge hits did 4x).
+    g = fresh_game()
+    prince = spawn(g, CardType.PRINCE, 0, 9.0, 8.0)
+    target = spawn(g, CardType.PEKKA, 1, 9.0, 8.2)  # high HP: survives the hit
+    prince.target_eid = target.eid
+    prince.next_hit_is_charge = True
+    prince.attack_timer = 0.0
+    expected = prince.damage_per_hit  # base hit * charge_damage_mult (2x)
+    hp0 = target.hp
+    g._process_combat(prince)
+    assert (hp0 - target.hp) == pytest.approx(expected)
+
+
+def test_evolved_pekka_heals_only_on_kill():
+    g = fresh_game()
+    pekka = _evolved_entity(g, CardType.PEKKA, 0, 9.0, 8.0)
+    pekka.hp = 100.0
+
+    # Hitting a survivor heals nothing (Butter-Heal is heal-on-kill only).
+    survivor = spawn(g, CardType.GIANT, 1, 9.0, 8.2)
+    g._apply_evo_on_attack(pekka, survivor)
+    assert pekka.hp == pytest.approx(100.0)
+
+    # A killing blow heals by the defeated unit's HP (capped at 1.66x max).
+    victim = spawn(g, CardType.MUSKETEER, 1, 9.0, 8.2)
+    victim_max_hp = victim.max_hp
+    victim.hp = 0.0  # the attack killed it (alive is derived from hp)
+    g._apply_evo_on_attack(pekka, victim)
+    assert pekka.hp == pytest.approx(min(100.0 + victim_max_hp, pekka.max_hp * 1.66))
+
+
+def test_evolved_battle_ram_knocks_back_only_on_charge():
+    g = fresh_game()
+    ram = _evolved_entity(g, CardType.BATTLE_RAM, 0, 9.0, 8.0)
+    target = spawn(g, CardType.MUSKETEER, 1, 9.0, 10.0)
+    y0 = target.y
+
+    # A regular (non-charge) hit does not knock back.
+    g._apply_evo_on_attack(ram, target, was_charge=False)
+    assert target.y == pytest.approx(y0)
+
+    # The charge-contact hit knocks the target back.
+    g._apply_evo_on_attack(ram, target, was_charge=True)
+    assert target.y > y0
+
+
 def test_little_prince_summons_guardienne():
     g = fresh_game()
     spawn(g, CardType.LITTLE_PRINCE, 0, 9.0, 8.0)

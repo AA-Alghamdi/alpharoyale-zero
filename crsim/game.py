@@ -1018,10 +1018,10 @@ class CRGame:
                 )
                 dmg = current_dps * entity.attack_interval
             else:
+                # damage_per_hit already applies charge_damage_mult (2x for
+                # Prince/Dark Prince, etc.) when next_hit_is_charge is set, so
+                # the charge bonus must not be multiplied in again here.
                 dmg = entity.damage_per_hit
-                # Charge hit deals 2× damage (Prince, Dark Prince, Ram Rider, etc.)
-                if entity.next_hit_is_charge:
-                    dmg *= 2.0
 
             card_def = CARD_DEFS.get(entity.card_type)
             stuns = card_def.stuns if card_def else False
@@ -1064,15 +1064,18 @@ class CRGame:
                 else:
                     target.take_damage(self._crown_adjusted_entity(entity, dmg, target))
 
-            # Clear charge flag after hit
+            # Clear charge flag after hit (remember it for charge-gated effects).
+            was_charge = entity.next_hit_is_charge
             entity.next_hit_is_charge = False
             entity.attack_timer = entity.attack_interval
 
             # Evolved on-attack effects (clone, leech, rage, knockback).
             if entity.is_evolved:
-                self._apply_evo_on_attack(entity, target)
+                self._apply_evo_on_attack(entity, target, was_charge=was_charge)
 
-    def _apply_evo_on_attack(self, entity: Entity, target: Entity) -> None:
+    def _apply_evo_on_attack(
+        self, entity: Entity, target: Entity, was_charge: bool = False
+    ) -> None:
         """Trigger an evolved unit's on-attack effect, dispatched by card type."""
         evo = EVOLUTION_DEFS.get(entity.card_type)
         if evo is None:
@@ -1101,18 +1104,29 @@ class CRGame:
                 )
                 self.entities.append(clone)
 
-        # Bats "Life Leech": heal on attack, may overheal to 2x max HP.
+        # Bats "Life Leech": heal a fraction of own damage every attack; may
+        # overheal up to 2x max HP.
         if evo.heal_on_attack:
             heal = entity.damage_per_hit * 0.5
             entity.hp = min(entity.hp + heal, entity.max_hp * 2.0)
+
+        # P.E.K.K.A "Butter-Heal": heal only on a killing blow, by the defeated
+        # unit's hitpoints; may overheal up to 1.66x max HP.
+        if evo.heal_on_kill and not target.alive and not target.is_tower:
+            entity.hp = min(entity.hp + target.max_hp, entity.max_hp * 1.66)
 
         # Barbarians "Blade Rage": attack-speed boost refreshed each attack.
         if evo.attack_speed_boost > 0:
             entity.attack_speed_timer = 3.0
             entity.attack_speed_mult = 1.0 + evo.attack_speed_boost / 100.0
 
-        # Knockback (Royal Giant / Mega Knight): push the target away.
-        if evo.knockback_tiles > 0 and not target.is_tower:
+        # Knockback: Royal Giant / Mega Knight push on every attack; Battle Ram
+        # only on its charge-contact hit. Towers are never knocked back.
+        if (
+            evo.knockback_tiles > 0
+            and not target.is_tower
+            and (was_charge or not evo.knockback_requires_charge)
+        ):
             dx = target.x - entity.x
             dy = target.y - entity.y
             dist = math.sqrt(dx * dx + dy * dy)
