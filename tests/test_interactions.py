@@ -462,6 +462,44 @@ def test_skeleton_king_ability_summons_skeletons_and_costs_elixir():
     assert g.players[0].elixir == pytest.approx(6.0)  # 8 - 2 ability cost
 
 
+def test_archer_queen_cloak_makes_her_untargetable_and_faster():
+    g = fresh_game()
+    aq = spawn(g, CardType.ARCHER_QUEEN, 0, 9.0, 16.0)
+    enemy = spawn(g, CardType.MUSKETEER, 1, 9.5, 16.0)
+    g.players[0].elixir = 8.0
+
+    # Before cloak the enemy can see and target her.
+    assert g._find_target(enemy) == aq.eid
+
+    g.apply_action(Action(player=0, ability=True))
+    assert aq.invisible_timer == pytest.approx(3.5)
+    assert aq.attack_speed_mult == pytest.approx(1.7)
+    assert g.players[0].elixir == pytest.approx(7.0)  # 8 - 1 ability cost
+
+    # While cloaked she cannot be targeted.
+    assert g._find_target(enemy) != aq.eid
+
+
+def test_golden_knight_dash_damages_a_line_and_repositions():
+    g = fresh_game()
+    gk = spawn(g, CardType.GOLDEN_KNIGHT, 0, 9.0, 10.0)
+    g.players[0].elixir = 8.0
+    # Three enemies ahead of the Golden Knight within dash range.
+    targets = [
+        spawn(g, CardType.MUSKETEER, 1, 9.0, 11.0),
+        spawn(g, CardType.MUSKETEER, 1, 9.0, 12.0),
+        spawn(g, CardType.MUSKETEER, 1, 9.0, 14.0),
+    ]
+    hp0 = [t.hp for t in targets]
+    g.apply_action(Action(player=0, ability=True))
+
+    dmg = CARD_DEFS[CardType.GOLDEN_KNIGHT].damage_per_hit
+    for t, h0 in zip(targets, hp0):
+        assert (h0 - t.hp) == pytest.approx(dmg, rel=1e-3)
+    # He repositions onto the farthest enemy he struck.
+    assert gk.y == pytest.approx(14.0)
+
+
 def test_champion_ability_respects_cooldown_and_cost():
     from crsim.constants import ABILITY_ACTION
 

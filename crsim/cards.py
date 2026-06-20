@@ -1453,6 +1453,10 @@ CARD_DEFS: dict[CardType, CardDef] = {
         target_mode=TargetMode.AIR_GROUND,
         has_projectile=True,
         is_champion=True,
+        # "Cloaking Cape": go invisible and fire faster for 3.5s.
+        ability_cost=1,
+        ability_cooldown=14.0,
+        ability_duration=3.5,
     ),
     CardType.GOLDEN_KNIGHT: CardDef(
         card_type=CardType.GOLDEN_KNIGHT,
@@ -1469,6 +1473,9 @@ CARD_DEFS: dict[CardType, CardDef] = {
         target_mode=TargetMode.GROUND,
         collision_radius=0.8,
         is_champion=True,
+        # "Dashing Dash": dash through a line of enemies dealing hit damage.
+        ability_cost=1,
+        ability_cooldown=12.0,
     ),
     CardType.MONK: CardDef(
         card_type=CardType.MONK,
