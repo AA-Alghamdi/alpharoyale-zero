@@ -1,0 +1,76 @@
+# ClashRoyale-Zero training configuration
+# ========================================
+
+# --- Hardware ---
+hardware:
+  n_self_play_gpus: 6       # GPUs 0-5 for self-play
+  n_training_gpus: 2        # GPUs 6-7 for training (DDP)
+
+# --- Model ---
+model:
+  n_res_blocks: 20          # residual blocks in backbone
+  n_filters: 256            # channels per conv layer
+  use_se: true              # squeeze-and-excitation blocks
+
+# --- MCTS ---
+mcts:
+  simulations: 800          # per move (reduced in early phases)
+  c_puct: 2.5               # exploration constant
+  dirichlet_alpha: 0.15     # root noise parameter
+  dirichlet_frac: 0.25      # fraction of noise at root
+  temperature: 1.0          # initial temperature
+  temperature_threshold: 20 # switch to greedy after N moves
+
+# --- Self-play ---
+self_play:
+  games_per_worker_batch: 4 # games per generation cycle
+  random_decks: true        # randomize deck selection
+  max_entities: 128         # entity cap per game
+
+# --- Training ---
+training:
+  batch_size: 2048
+  lr: 2.0e-4
+  lr_min: 1.0e-5
+  weight_decay: 1.0e-4
+  max_steps: 500000
+  grad_clip: 1.0
+  value_loss_weight: 1.0
+
+# --- Replay buffer ---
+buffer:
+  capacity: 500000
+  min_before_train: 5000
+
+# --- Scheduling ---
+schedule:
+  # Phase 1: starter decks, 200 MCTS sims
+  phase1_end_step: 50000
+  phase1_mcts_sims: 200
+
+  # Phase 2: random decks, 400 MCTS sims
+  phase2_end_step: 200000
+  phase2_mcts_sims: 400
+
+  # Phase 3: full MCTS (800 sims) until max_steps
+  phase3_mcts_sims: 800
+
+  # Weight broadcast interval (training steps)
+  weight_sync_interval: 500
+
+# --- Evaluation ---
+evaluation:
+  interval_steps: 10000     # evaluate every N training steps
+  n_games: 50               # games per evaluation
+  mcts_sims: 200            # MCTS sims for evaluation (faster)
+  promotion_threshold: 0.55 # win rate to promote new model
+
+# --- Checkpointing ---
+checkpoint:
+  dir: checkpoints
+  interval_steps: 5000
+
+# --- Logging ---
+logging:
+  tensorboard_dir: runs
+  log_interval: 500         # log metrics every N steps

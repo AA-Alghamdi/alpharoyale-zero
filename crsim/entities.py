@@ -1,0 +1,313 @@
+"""Runtime entity representation — troops, buildings, towers, and spell effects."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from crsim.cards import CardDef, CardType, EntityKind, TargetMode
+
+
+@dataclass(slots=True)
+class Entity:
+    """A live entity on the battlefield."""
+
+    eid: int  # unique id within a game
+    owner: int  # 0 or 1
+    card_type: CardType
+    kind: EntityKind
+
+    # Position
+    x: float
+    y: float
+
+    # Combat stats (mutable copies from CardDef)
+    hp: float
+    max_hp: float
+    dps: float
+    attack_interval: float  # seconds
+    attack_timer: float  # seconds until next attack; 0 = ready
+    attack_range: float
+    target_mode: TargetMode
+    speed: float  # tiles / second
+    base_speed: float = 0.0  # original speed before slow effects
+
+    is_flying: bool = False
+    is_splash: bool = False
+    splash_radius: float = 0.0
+    minimum_range: float = 0.0  # can't hit targets closer than this (Mortar/X-Bow)
+
+    # Death damage (explosion on death)
+    death_damage: float = 0.0
+    death_damage_radius: float = 0.0
+
+    # Crown-tower damage modifier (signed percent; -75 => tower takes 25%)
+    crown_tower_damage_percent: float = 0.0
+
+    # Champion ability (manually activated)
+    is_champion: bool = False
+    ability_cost: int = 0
+    ability_cooldown: float = 0.0  # max seconds between activations
+    ability_cooldown_timer: float = 0.0  # remaining cooldown; <=0 => ready
+    ability_active_timer: float = 0.0  # remaining duration of an active effect
+    invisible_timer: float = 0.0  # while >0 the unit cannot be targeted
+    attack_speed_timer: float = 0.0  # while >0 attacks are sped up
+    attack_speed_mult: float = 1.0  # attack-timer multiplier during the boost
+    damage_reduction_timer: float = 0.0  # while >0 incoming damage is scaled
+    damage_reduction_mult: float = 1.0  # incoming-damage multiplier (e.g. 0.2 = 20%)
+
+    # Evolution
+    is_evolved: bool = False
+    evo_shield: bool = False  # one-shot damage shield (Knight evo); lost on first hit
+    evo_shield_mult: float = 1.0  # incoming-damage multiplier while the shield holds
+
+    # Building fields
+    is_building: bool = False
+    building_timer: float = 0.0  # remaining lifetime (seconds)
+    spawner_timer: float = 0.0
+    spawner_interval: float = 0.0
+
+    # Inferno ramp
+    inferno_dps_min: float = 0.0
+    inferno_dps_max: float = 0.0
+    inferno_ramp_time: float = 0.0  # seconds locked onto current target
+
+    # Targeting
+    target_eid: int = -1  # -1 = no target
+
+    # Is a tower?
+    is_tower: bool = False
+    is_king_tower: bool = False
+
+    # New mechanics
+    deploy_timer: float = 0.0  # remaining deploy time; >0 means unit not active yet
+    is_deployed: bool = True  # False during deploy phase
+
+    # Charge
+    is_charging: bool = False
+    charge_distance: float = 0.0  # tiles traveled while charging
+    charge_speed: float = 0.0
+    charge_damage_mult: float = 2.0
+    next_hit_is_charge: bool = False
+
+    # Shield
+    has_shield: bool = False
+    shield_hp: float = 0.0
+
+    # Stun
+    stun_timer: float = 0.0  # remaining stun duration; >0 = stunned
+
+    # Slow
+    slow_timer: float = 0.0
+    slow_factor: float = 0.5
+
+    # Load time (first-hit mechanic)
+    load_time: float = 0.0  # max time that can be preloaded while moving
+    load_progress: float = 0.0  # accumulated load while moving toward target
+
+    # Freeze
+    freeze_timer: float = 0.0  # remaining freeze duration; >0 = frozen
+
+    # Rage
+    rage_timer: float = 0.0
+    rage_speed_mult: float = 1.4  # 40% boost (confirmed from CR data)
+
+    # Poison
+    poison_timer: float = 0.0
+    poison_dps: float = 0.0
+
+    # Hidden stats (aggro, collision, mass)
+    sight_range: float = 5.5  # aggro range in tiles (default for most troops)
+    collision_radius: float = 0.5  # collision size in tiles
+    mass: float = 6.0  # determines push interaction (higher = harder to push)
+
+    # Projectile
+    has_projectile: bool = False
+    projectile_speed: float = 0.0  # tiles/sec; 0 = instant
+
+    # Death spawns
+    death_spawn_card_type: CardType | None = None
+    death_spawn_count: int = 0
+    death_spawn_hp: float = 0.0
+    death_spawn_dps: float = 0.0
+
+    @property
+    def alive(self) -> bool:
+        return self.hp > 0
+
+    @property
+    def stunned(self) -> bool:
+        return self.stun_timer > 0.0
+
+    @property
+    def frozen(self) -> bool:
+        return self.freeze_timer > 0.0
+
+    @property
+    def active(self) -> bool:
+        return self.alive and self.is_deployed and not self.stunned and not self.frozen
+
+    @property
+    def damage_per_hit(self) -> float:
+        if self.attack_interval <= 0:
+            return 0.0
+        dmg = self.dps * self.attack_interval
+        if self.next_hit_is_charge:
+            dmg *= self.charge_damage_mult
+        return dmg
+
+    @property
+    def effective_speed(self) -> float:
+        if self.is_charging:
+            s = self.charge_speed
+        else:
+            s = self.speed
+        if self.slow_timer > 0:
+            s *= self.slow_factor
+        if self.rage_timer > 0:
+            s *= self.rage_speed_mult
+        return s
+
+    def distance_to(self, other: Entity) -> float:
+        dx = self.x - other.x
+        dy = self.y - other.y
+        return math.sqrt(dx * dx + dy * dy)
+
+    def distance_to_pos(self, px: float, py: float) -> float:
+        dx = self.x - px
+        dy = self.y - py
+        return math.sqrt(dx * dx + dy * dy)
+
+    def apply_stun(self, duration: float) -> None:
+        self.stun_timer = max(self.stun_timer, duration)
+
+    def apply_slow(self, duration: float, factor: float = 0.5) -> None:
+        self.slow_timer = max(self.slow_timer, duration)
+        self.slow_factor = factor
+
+    def take_damage(self, damage: float, is_dot: bool = False) -> float:
+        """Apply damage, considering shield. Returns actual HP damage dealt.
+
+        ``is_dot`` marks incidental damage-over-time (poison ticks, damage
+        zones). Such ticks do not consume the Knight-evolution one-shot shield,
+        which is meant to absorb a real attack rather than a fractional tick.
+        """
+        # Ability damage reduction (Monk's Pensive Protection) scales the hit.
+        if self.damage_reduction_timer > 0:
+            damage *= self.damage_reduction_mult
+        # Knight-evolution one-shot shield: reduces the first attack, then drops.
+        if self.evo_shield and not is_dot:
+            damage *= self.evo_shield_mult
+            self.evo_shield = False
+        if self.has_shield and self.shield_hp > 0:
+            self.shield_hp -= damage
+            if self.shield_hp <= 0:
+                overflow = -self.shield_hp
+                self.shield_hp = 0.0
+                self.has_shield = False
+                if overflow > 0:
+                    self.hp -= overflow
+                    return overflow
+                return 0.0
+            return 0.0
+        self.hp -= damage
+        return damage
+
+
+def entity_from_card(
+    eid: int,
+    owner: int,
+    card_def: CardDef,
+    x: float,
+    y: float,
+    hp_override: float = 0.0,
+    dps_override: float = 0.0,
+    evolved: bool = False,
+) -> Entity:
+    """Create a live Entity from a CardDef at a given position."""
+    hp = hp_override if hp_override > 0 else card_def.hp
+    dps = dps_override if dps_override > 0 else card_def.dps
+    deploy_time = card_def.deploy_time if card_def.kind == EntityKind.TROOP else 0.0
+    return Entity(
+        is_evolved=evolved,
+        eid=eid,
+        owner=owner,
+        card_type=card_def.card_type,
+        kind=card_def.kind,
+        x=x,
+        y=y,
+        hp=hp,
+        max_hp=hp,
+        dps=dps,
+        attack_interval=card_def.attack_interval,
+        attack_timer=card_def.attack_interval,
+        attack_range=card_def.attack_range,
+        target_mode=card_def.target_mode,
+        speed=card_def.speed,
+        base_speed=card_def.speed,
+        is_flying=card_def.is_flying,
+        is_splash=card_def.is_splash,
+        splash_radius=card_def.splash_radius,
+        is_building=card_def.kind == EntityKind.BUILDING,
+        building_timer=card_def.building_lifetime,
+        spawner_interval=card_def.spawner_interval,
+        spawner_timer=card_def.spawner_interval,
+        inferno_dps_min=card_def.inferno_dps_min,
+        inferno_dps_max=card_def.inferno_dps_max,
+        deploy_timer=deploy_time,
+        is_deployed=deploy_time <= 0,
+        charge_speed=card_def.charge_speed,
+        charge_damage_mult=card_def.charge_damage_mult,
+        has_shield=card_def.has_shield,
+        shield_hp=card_def.shield_hp,
+        load_time=card_def.load_time,
+        sight_range=card_def.sight_range,
+        collision_radius=card_def.collision_radius,
+        mass=getattr(card_def, 'mass', 6.0),
+        has_projectile=card_def.has_projectile,
+        projectile_speed=getattr(card_def, 'projectile_speed', 0.0),
+        death_spawn_card_type=card_def.death_spawn_card,
+        death_spawn_count=card_def.death_spawn_count,
+        death_spawn_hp=card_def.death_spawn_hp,
+        death_spawn_dps=card_def.death_spawn_dps,
+        minimum_range=card_def.minimum_range,
+        death_damage=card_def.death_damage,
+        death_damage_radius=card_def.death_damage_radius,
+        crown_tower_damage_percent=card_def.crown_tower_damage_percent,
+        is_champion=card_def.is_champion,
+        ability_cost=card_def.ability_cost,
+        ability_cooldown=card_def.ability_cooldown,
+    )
+
+
+def make_tower(
+    eid: int,
+    owner: int,
+    x: float,
+    y: float,
+    hp: float,
+    damage: float,
+    attack_range: float,
+    attack_interval: float,
+    is_king: bool = False,
+) -> Entity:
+    """Create a tower entity."""
+    return Entity(
+        eid=eid,
+        owner=owner,
+        card_type=CardType.KNIGHT,  # placeholder; towers have no card type
+        kind=EntityKind.BUILDING,
+        x=x,
+        y=y,
+        hp=hp,
+        max_hp=hp,
+        dps=damage / attack_interval if attack_interval > 0 else 0,
+        attack_interval=attack_interval,
+        attack_timer=attack_interval,
+        attack_range=attack_range,
+        target_mode=TargetMode.AIR_GROUND,
+        speed=0.0,
+        is_building=True,
+        is_tower=True,
+        is_king_tower=is_king,
+    )
