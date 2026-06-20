@@ -4,7 +4,7 @@ AlphaStar-style autoregressive action decomposition:
   Stage 1: WHAT to play (5 choices: 4 hand slots + WAIT)
   Stage 2: WHERE to place (continuous or fine grid)
 
-This reduces the branching factor from 2,305 (flat) to 5 × position,
+This reduces the branching factor from 2,306 (flat) to 5 × position,
 making MCTS search much more efficient.
 
 References:

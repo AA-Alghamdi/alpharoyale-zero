@@ -25,9 +25,9 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 
+from crsim.actions import action_id_to_action as _action_from_id
 from crsim.cards import CARD_DEFS, EntityKind
 from crsim.constants import (
-    ABILITY_ACTION,
     ARENA_H,
     ARENA_W,
     BRIDGE_LEFT_COLS,
@@ -175,18 +175,6 @@ class SearchAgent:
             game, player, deterministic=self.deterministic
         )
         return int(action_id)
-
-
-def _action_from_id(action_id: int, player: int) -> Action:
-    if action_id == WAIT_ACTION:
-        return Action(player=player, hand_slot=-1)
-    if action_id == ABILITY_ACTION:
-        return Action(player=player, hand_slot=-1, ability=True)
-    slot = action_id // (ARENA_W * ARENA_H)
-    remainder = action_id % (ARENA_W * ARENA_H)
-    x = remainder // ARENA_H
-    y = remainder % ARENA_H
-    return Action(player=player, hand_slot=slot, x=float(x), y=float(y))
 
 
 def play_match(

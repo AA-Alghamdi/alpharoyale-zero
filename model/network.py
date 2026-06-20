@@ -5,7 +5,7 @@ Architecture
 Spatial input  → 3×3 conv (256 filters) → 20 SE-ResBlocks
 Scalar input   → Linear(256) → ReLU → Linear(256)
 Merge          → concat channel-wise (broadcast scalars to spatial grid)
-Policy head    → 1×1 conv(2) → flatten → Linear(2305)
+Policy head    → 1×1 conv(2) → flatten → Linear(ACTION_SPACE_SIZE = 2306)
 Value head     → 1×1 conv(1) → flatten → Linear(256) → ReLU → Linear(1) → tanh
 """
 

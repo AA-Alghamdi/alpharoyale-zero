@@ -24,7 +24,7 @@ from crsim.constants import (
     NUM_HAND_SLOTS,
     WAIT_ACTION,
 )
-from crsim.game import Action, CRGame
+from crsim.game import CRGame
 from model.features import encode_state, extract_entity_features
 
 
@@ -388,14 +388,3 @@ class MuZeroSearch:
             action_id = int(np.random.choice(len(action_probs), p=action_probs))
 
         return action_id, action_probs
-
-
-def _action_id_to_action(action_id: int, player: int) -> Action:
-    """Convert flat action id to Action."""
-    if action_id == WAIT_ACTION:
-        return Action(player=player, hand_slot=-1)
-    slot = action_id // (ARENA_W * ARENA_H)
-    remainder = action_id % (ARENA_W * ARENA_H)
-    x = remainder // ARENA_H
-    y = remainder % ARENA_H
-    return Action(player=player, hand_slot=slot, x=float(x), y=float(y))

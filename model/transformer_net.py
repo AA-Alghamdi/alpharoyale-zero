@@ -248,7 +248,7 @@ class LSTMCore(nn.Module):
 class AutoregressivePolicyHead(nn.Module):
     """Decomposed action head: card_slot → x_position → y_position.
 
-    Instead of a flat 2305-way softmax, decomposes the action into three
+    Instead of a flat 2306-way softmax, decomposes the action into three
     sequential decisions. This is much easier to learn and scales better.
     """
 
