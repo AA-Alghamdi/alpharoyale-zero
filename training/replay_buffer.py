@@ -232,3 +232,100 @@ class ReplayBuffer:
         """Update priorities for PER."""
         with self._lock:
             self._priority[indices] = priorities
+
+    # ------------------------------------------------------------------ #
+    # Persistence (warm-start)
+    # ------------------------------------------------------------------ #
+    def _chronological_order(self) -> np.ndarray:
+        """Indices of valid entries, oldest first."""
+        if self._size < self.capacity:
+            return np.arange(self._size)
+        return (self._write_idx + np.arange(self.capacity)) % self.capacity
+
+    def drain_all(self) -> dict[str, np.ndarray]:
+        """Return all valid entries (oldest first) and empty the buffer.
+
+        Used to ship a self-play actor's local positions to the central learner
+        without loss. Unlike :meth:`sample`, this returns *every* field
+        (entity features + auxiliary targets) and is exhaustive (no sampling
+        with replacement), so nothing is duplicated or silently dropped.
+        """
+        with self._lock:
+            if not self._allocated or self._size == 0:
+                return {}
+            order = self._chronological_order()
+            out = {
+                "spatial": self._spatial[order].copy(),
+                "scalar": self._scalar[order].copy(),
+                "policy": self._policy[order].copy(),
+                "value": self._value[order].copy(),
+                "entity_features": self._entity_features[order].copy(),
+                "entity_mask": self._entity_mask[order].copy(),
+                "crown_target": self._crown_target[order].copy(),
+                "tower_hp_target": self._tower_hp_target[order].copy(),
+                "game_length_target": self._game_length_target[order].copy(),
+                "priority": self._priority[order].copy(),
+            }
+            self._size = 0
+            self._write_idx = 0
+            return out
+
+    def save(self, path: str) -> None:
+        """Persist all valid entries to a ``.npz`` file (oldest first).
+
+        Stores every field (including entity features and auxiliary targets) so
+        the buffer can be reloaded for warm-start without losing the signal the
+        model trains on. Big arrays keep their on-disk float16 dtype.
+        """
+        with self._lock:
+            if not self._allocated or self._size == 0:
+                np.savez_compressed(path, size=np.int64(0))
+                logger.info("Saved empty replay buffer to %s", path)
+                return
+            order = self._chronological_order()
+            np.savez_compressed(
+                path,
+                size=np.int64(self._size),
+                spatial=self._spatial[order],
+                scalar=self._scalar[order],
+                policy=self._policy[order],
+                value=self._value[order],
+                entity_features=self._entity_features[order],
+                entity_mask=self._entity_mask[order],
+                crown_target=self._crown_target[order],
+                tower_hp_target=self._tower_hp_target[order],
+                game_length_target=self._game_length_target[order],
+                priority=self._priority[order],
+            )
+        logger.info("Saved %d replay positions to %s", self._size, path)
+
+    def load(self, path: str) -> int:
+        """Load entries from a ``.npz`` file produced by :meth:`save`.
+
+        Entries are written into this buffer in chronological order, respecting
+        its ring capacity (if the file holds more positions than capacity, only
+        the most recent ``capacity`` are kept). Returns the number loaded.
+        """
+        data = np.load(path, allow_pickle=False)
+        n = int(data["size"])
+        if n == 0:
+            logger.info("Loaded empty replay buffer from %s", path)
+            return 0
+        with self._lock:
+            self._ensure_allocated()
+            take = min(n, self.capacity)
+            src = slice(n - take, n)  # keep the most recent `take` positions
+            self._spatial[:take] = data["spatial"][src].astype(np.float16)
+            self._scalar[:take] = data["scalar"][src].astype(np.float32)
+            self._policy[:take] = data["policy"][src].astype(np.float32)
+            self._value[:take] = data["value"][src].astype(np.float32)
+            self._entity_features[:take] = data["entity_features"][src].astype(np.float16)
+            self._entity_mask[:take] = data["entity_mask"][src].astype(bool)
+            self._crown_target[:take] = data["crown_target"][src].astype(np.int64)
+            self._tower_hp_target[:take] = data["tower_hp_target"][src].astype(np.float32)
+            self._game_length_target[:take] = data["game_length_target"][src].astype(np.float32)
+            self._priority[:take] = data["priority"][src].astype(np.float32)
+            self._size = take
+            self._write_idx = take % self.capacity
+        logger.info("Loaded %d replay positions from %s", take, path)
+        return take
