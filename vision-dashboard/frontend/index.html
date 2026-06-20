@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CR Vision Dashboard</title>
+    <style>
+        :root {
+            --bg: #0f0f1a;
+            --card-bg: #1a1a2e;
+            --accent: #e94560;
+            --accent2: #0f3460;
+            --text: #eaeaea;
+            --text-dim: #8888aa;
+            --green: #4ecca3;
+            --orange: #f5a623;
+            --blue: #4a9eff;
+            --red: #e94560;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, var(--accent2), #16213e);
+            padding: 1.5rem 2rem;
+            border-bottom: 2px solid var(--accent);
+        }
+        .header h1 { font-size: 1.8rem; font-weight: 700; }
+        .header p { color: var(--text-dim); margin-top: 0.3rem; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+        .input-section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .input-section label { font-weight: 600; }
+        .sample-select, .upload-btn, .run-btn {
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background: #252540;
+            color: var(--text);
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        .run-btn {
+            background: var(--accent);
+            border: none;
+            font-weight: 700;
+            transition: transform 0.1s;
+        }
+        .run-btn:hover { transform: scale(1.05); }
+        .run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .results { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+        .system-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #2a2a4a;
+        }
+        .system-header {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 1rem 1.2rem;
+            border-bottom: 1px solid #2a2a4a;
+        }
+        .system-header h3 { flex: 1; font-size: 1.1rem; }
+        .badge {
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .badge-real { background: var(--green); color: #000; }
+        .badge-ensemble { background: var(--orange); color: #000; }
+        .badge-recon { background: var(--text-dim); color: #000; }
+        .system-body { padding: 1rem 1.2rem; }
+        .system-meta {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-bottom: 0.8rem;
+        }
+        .system-meta span { margin-right: 1rem; }
+        .canvas-container {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+        }
+        .canvas-container canvas {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+        }
+        .detection-list {
+            margin-top: 0.8rem;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 0.8rem;
+        }
+        .det-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.25rem 0.5rem;
+            margin: 0.15rem;
+            border-radius: 4px;
+            background: #252540;
+        }
+        .det-conf {
+            font-weight: 600;
+            font-size: 0.7rem;
+        }
+        .det-ally { border-left: 3px solid var(--blue); }
+        .det-enemy { border-left: 3px solid var(--red); }
+        .det-confirmed { border-left: 3px solid var(--green); }
+        .stats-bar {
+            display: flex;
+            gap: 1.5rem;
+            padding: 0.8rem 0;
+            border-top: 1px solid #2a2a4a;
+            margin-top: 0.8rem;
+            font-size: 0.8rem;
+        }
+        .stat { display: flex; flex-direction: column; }
+        .stat-value { font-weight: 700; font-size: 1.1rem; }
+        .stat-label { color: var(--text-dim); font-size: 0.7rem; }
+        .view-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.8rem;
+        }
+        .view-tab {
+            padding: 0.3rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            background: #252540;
+            border: 1px solid #333;
+        }
+        .view-tab.active {
+            background: var(--accent2);
+            border-color: var(--blue);
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 3rem;
+            font-size: 1.2rem;
+            color: var(--text-dim);
+        }
+        .loading.active { display: block; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid #333;
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-dim);
+        }
+        .empty-state h2 { margin-bottom: 0.5rem; color: var(--text); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>CR Vision Dashboard</h1>
+        <p>How different CV systems see a Clash Royale screenshot — real inference + ensemble fusion</p>
+    </div>
+
+    <div class="container">
+        <div class="input-section">
+            <label>Sample:</label>
+            <select class="sample-select" id="sampleSelect">
+                <option value="">-- Pick a sample --</option>
+            </select>
+            <label>or Upload:</label>
+            <input type="file" id="fileInput" accept="image/*" class="upload-btn">
+            <button class="run-btn" id="runBtn" onclick="runInference()">Run Inference</button>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Running inference on all models...</p>
+        </div>
+
+        <div id="emptyState" class="empty-state">
+            <h2>Select a sample or upload a screenshot</h2>
+            <p>The dashboard will show how Pbatch (YOLOv10m), cr_robot_player (YOLOv8s), and the Fusion ensemble each detect units.</p>
+        </div>
+
+        <div class="results" id="results" style="display:none;"></div>
+    </div>
+
+    <script>
+        const API = '';  // Same origin
+
+        async function loadSamples() {
+            const resp = await fetch(`${API}/api/samples`);
+            const data = await resp.json();
+            const select = document.getElementById('sampleSelect');
+            data.samples.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.filename;
+                opt.textContent = s.name;
+                select.appendChild(opt);
+            });
+        }
+
+        async function runInference() {
+            const sample = document.getElementById('sampleSelect').value;
+            const fileInput = document.getElementById('fileInput');
+            const btn = document.getElementById('runBtn');
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            const empty = document.getElementById('emptyState');
+
+            if (!sample && !fileInput.files.length) {
+                alert('Select a sample or upload an image first');
+                return;
+            }
+
+            btn.disabled = true;
+            loading.classList.add('active');
+            results.style.display = 'none';
+            empty.style.display = 'none';
+
+            try {
+                let resp;
+                if (fileInput.files.length) {
+                    const form = new FormData();
+                    form.append('file', fileInput.files[0]);
+                    resp = await fetch(`${API}/api/infer`, { method: 'POST', body: form });
+                } else {
+                    const form = new FormData();
+                    form.append('sample', sample);
+                    resp = await fetch(`${API}/api/infer`, { method: 'POST', body: form });
+                }
+
+                const data = await resp.json();
+                renderResults(data);
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove('active');
+            }
+        }
+
+        function renderResults(data) {
+            const results = document.getElementById('results');
+            results.innerHTML = '';
+            results.style.display = 'grid';
+
+            const imgSrc = `data:image/jpeg;base64,${data.image}`;
+            const systems = ['pbatch', 'crrp', 'fusion'];
+
+            systems.forEach(sysKey => {
+                const sys = data.systems[sysKey];
+                const card = document.createElement('div');
+                card.className = 'system-card';
+
+                const badgeClass = sys.badge === 'REAL' ? 'badge-real' :
+                                   sys.badge === 'ENSEMBLE' ? 'badge-ensemble' : 'badge-recon';
+
+                const dets = sys.detections;
+                const allies = dets.filter(d => d.side === 'ally').length;
+                const enemies = dets.filter(d => d.side === 'enemy').length;
+                const confirmed = dets.filter(d => d.confirmed_by).length;
+                const avgConf = dets.length ? (dets.reduce((s, d) => s + d.confidence, 0) / dets.length).toFixed(2) : '—';
+
+                card.innerHTML = `
+                    <div class="system-header">
+                        <h3>${sys.name}</h3>
+                        <span class="badge ${badgeClass}">${sys.badge}</span>
+                    </div>
+                    <div class="system-body">
+                        <div class="system-meta">
+                            <span>${sys.description}</span>
+                        </div>
+                        <div class="view-tabs">
+                            <span class="view-tab active" onclick="switchView(this, '${sysKey}', 'boxes')">Boxes</span>
+                            <span class="view-tab" onclick="switchView(this, '${sysKey}', 'sides')">Ally/Enemy</span>
+                            <span class="view-tab" onclick="switchView(this, '${sysKey}', 'list')">List</span>
+                        </div>
+                        <div class="canvas-container">
+                            <canvas id="canvas-${sysKey}" width="${data.width}" height="${data.height}"></canvas>
+                        </div>
+                        <div class="stats-bar">
+                            <div class="stat"><span class="stat-value">${dets.length}</span><span class="stat-label">Detections</span></div>
+                            <div class="stat"><span class="stat-value">${allies}</span><span class="stat-label">Allies</span></div>
+                            <div class="stat"><span class="stat-value">${enemies}</span><span class="stat-label">Enemies</span></div>
+                            ${confirmed ? `<div class="stat"><span class="stat-value">${confirmed}</span><span class="stat-label">Cross-confirmed</span></div>` : ''}
+                            <div class="stat"><span class="stat-value">${avgConf}</span><span class="stat-label">Avg Conf</span></div>
+                            <div class="stat"><span class="stat-value">${sys.time_ms}ms</span><span class="stat-label">Inference</span></div>
+                        </div>
+                        <div class="detection-list" id="detlist-${sysKey}">
+                            ${dets.map(d => {
+                                const cls = d.confirmed_by ? 'det-confirmed' : (d.side === 'ally' ? 'det-ally' : 'det-enemy');
+                                return `<span class="det-item ${cls}"><span>${d.class}</span><span class="det-conf">${(d.confidence*100).toFixed(0)}%</span>${d.confirmed_by ? '<span title="Confirmed by CRRP">&#10003;</span>' : ''}</span>`;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+                results.appendChild(card);
+
+                // Draw boxes on canvas
+                const canvas = card.querySelector(`#canvas-${sysKey}`);
+                drawDetections(canvas, imgSrc, dets, 'boxes', data.width, data.height);
+            });
+
+            // Store data for view switching
+            window._lastData = data;
+        }
+
+        function drawDetections(canvas, imgSrc, dets, viewMode, imgW, imgH) {
+            const ctx = canvas.getContext('2d');
+            const img = new window.Image();
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0, imgW, imgH);
+
+                dets.forEach(d => {
+                    const [x1, y1, x2, y2] = d.bbox;
+                    let color;
+                    if (viewMode === 'sides') {
+                        color = d.side === 'ally' ? '#4a9eff' : '#e94560';
+                    } else if (d.confirmed_by) {
+                        color = '#4ecca3';
+                    } else {
+                        color = d.side === 'ally' ? '#4a9eff' : '#e94560';
+                    }
+
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+                    // Label
+                    const label = `${d.class} ${(d.confidence*100).toFixed(0)}%`;
+                    ctx.font = '11px monospace';
+                    const tw = ctx.measureText(label).width;
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x1, y1 - 14, tw + 4, 14);
+                    ctx.fillStyle = '#fff';
+                    ctx.fillText(label, x1 + 2, y1 - 3);
+                });
+            };
+            img.src = imgSrc;
+        }
+
+        function switchView(tab, sysKey, viewMode) {
+            // Update tab active state
+            tab.parentElement.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+
+            if (!window._lastData) return;
+            const data = window._lastData;
+            const sys = data.systems[sysKey];
+            const canvas = document.getElementById(`canvas-${sysKey}`);
+            const imgSrc = `data:image/jpeg;base64,${data.image}`;
+
+            if (viewMode === 'list') {
+                // Already visible in detection-list div
+                canvas.style.display = 'none';
+                document.getElementById(`detlist-${sysKey}`).style.maxHeight = '400px';
+            } else {
+                canvas.style.display = 'block';
+                document.getElementById(`detlist-${sysKey}`).style.maxHeight = '200px';
+                drawDetections(canvas, imgSrc, sys.detections, viewMode, data.width, data.height);
+            }
+        }
+
+        // Init
+        loadSamples();
+    </script>
+</body>
+</html>
