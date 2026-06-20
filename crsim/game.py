@@ -1062,6 +1062,60 @@ class CRGame:
             entity.next_hit_is_charge = False
             entity.attack_timer = entity.attack_interval
 
+            # Evolved on-attack effects (clone, leech, rage, knockback).
+            if entity.is_evolved:
+                self._apply_evo_on_attack(entity, target)
+
+    def _apply_evo_on_attack(self, entity: Entity, target: Entity) -> None:
+        """Trigger an evolved unit's on-attack effect, dispatched by card type."""
+        evo = EVOLUTION_DEFS.get(entity.card_type)
+        if evo is None:
+            return
+
+        # Skeletons "Skele-Cloning": each attack spawns a Skeleton up to max.
+        if evo.spawn_on_attack and entity.card_type == CardType.SKELETONS:
+            living = sum(
+                1
+                for e in self.entities
+                if e.alive and e.owner == entity.owner
+                and e.card_type == CardType.SKELETONS
+            )
+            cap = evo.max_spawns or 8
+            if living < cap and len(self.entities) < MAX_ENTITIES:
+                sk_def = CARD_DEFS[CardType.SKELETONS]
+                clone = entity_from_card(
+                    eid=self._alloc_eid(),
+                    owner=entity.owner,
+                    card_def=sk_def,
+                    x=entity.x + 0.5,
+                    y=entity.y,
+                    hp_override=sk_def.spawn_hp,
+                    dps_override=sk_def.spawn_dps,
+                    evolved=True,
+                )
+                self.entities.append(clone)
+
+        # Bats "Life Leech": heal on attack, may overheal to 2x max HP.
+        if evo.heal_on_attack:
+            heal = entity.damage_per_hit * 0.5
+            entity.hp = min(entity.hp + heal, entity.max_hp * 2.0)
+
+        # Barbarians "Blade Rage": attack-speed boost refreshed each attack.
+        if evo.attack_speed_boost > 0:
+            entity.attack_speed_timer = 3.0
+            entity.attack_speed_mult = 1.0 + evo.attack_speed_boost / 100.0
+
+        # Knockback (Royal Giant / Mega Knight): push the target away.
+        if evo.knockback_tiles > 0 and not target.is_tower:
+            dx = target.x - entity.x
+            dy = target.y - entity.y
+            dist = math.sqrt(dx * dx + dy * dy)
+            if dist > 1e-6:
+                target.x += (dx / dist) * evo.knockback_tiles
+                target.y += (dy / dist) * evo.knockback_tiles
+                target.x = max(0.0, min(float(ARENA_W - 1), target.x))
+                target.y = max(0.0, min(float(ARENA_H - 1), target.y))
+
     def _update_projectiles(self) -> None:
         """Advance all in-flight projectiles. Deal damage on impact."""
         surviving = []

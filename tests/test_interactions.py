@@ -595,6 +595,47 @@ def test_evolved_barbarians_have_boosted_hp():
     assert evo.max_hp == pytest.approx(base * 1.10)  # +10% HP evolution
 
 
+def _evolved_entity(g, card_type, owner, x, y):
+    e = entity_from_card(g._alloc_eid(), owner, CARD_DEFS[card_type], x, y, evolved=True)
+    e.deploy_timer = 0.0
+    e.is_deployed = True
+    g.entities.append(e)
+    return e
+
+
+def test_evolved_skeletons_clone_on_attack_up_to_cap():
+    g = fresh_game()
+    skel = _evolved_entity(g, CardType.SKELETONS, 0, 9.0, 8.0)
+    target = spawn(g, CardType.MUSKETEER, 1, 9.0, 8.0)
+
+    n0 = len(living(g, 0, CardType.SKELETONS))
+    g._apply_evo_on_attack(skel, target)
+    assert len(living(g, 0, CardType.SKELETONS)) == n0 + 1
+
+    # Cloning stops at the 8-skeleton cap.
+    for _ in range(20):
+        g._apply_evo_on_attack(skel, target)
+    assert len(living(g, 0, CardType.SKELETONS)) == 8
+
+
+def test_evolved_bats_heal_on_attack():
+    g = fresh_game()
+    bat = _evolved_entity(g, CardType.BATS, 0, 9.0, 8.0)
+    target = spawn(g, CardType.MUSKETEER, 1, 9.0, 8.0)
+    bat.hp = 1.0
+    g._apply_evo_on_attack(bat, target)
+    assert bat.hp > 1.0  # life leech healed the bat
+
+
+def test_evolved_mega_knight_knocks_target_back():
+    g = fresh_game()
+    mk = _evolved_entity(g, CardType.MEGA_KNIGHT, 0, 9.0, 8.0)
+    target = spawn(g, CardType.MUSKETEER, 1, 9.0, 10.0)
+    y0 = target.y
+    g._apply_evo_on_attack(mk, target)
+    assert target.y > y0  # pushed away from the Mega Knight
+
+
 def test_little_prince_summons_guardienne():
     g = fresh_game()
     spawn(g, CardType.LITTLE_PRINCE, 0, 9.0, 8.0)
