@@ -2,548 +2,753 @@
 
 ## 1. System Overview
 
-ClashRoyale-Zero is an AlphaZero-style reinforcement learning system for Clash Royale.
-It combines a high-fidelity game simulator, a deep residual neural network, and Monte
-Carlo Tree Search (MCTS) to learn superhuman play entirely through self-play — no human
-data, no hand-crafted heuristics.
+ClashRoyale-Zero is an AlphaZero-style RL system that learns Clash Royale play
+through self-play. It couples a deterministic game simulator (125 cards,
+6 champions, 35 evolutions) with two neural architectures, Gumbel-MuZero
+search, and an AlphaStar-style training league.
 
 ```
-+-------------------------------------------------------------+
-|                    SELF-PLAY LOOP                            |
-|                                                              |
-|  +------------+     +---------+     +------------------+     |
-|  | Simulator  |<--->| Gumbel  |<--->| CRStarNet        |     |
-|  | (CRSim)    |     | MuZero  |     | (entity-xformer  |     |
-|  |            |     | search  |     |  + spatial ResNet)|    |
-|  +------------+     +---------+     +------------------+     |
-|        |                                    ^                |
-|        v                                    |                |
-|  +------------------+    +------------------+                |
-|  | Replay Buffer    |--->| Trainer          |                |
-|  | (~500K positions,|    | (AdamW, AMP;     |                |
-|  |  float16 ring)   |    |  DDP at scale)   |                |
-|  +------------------+    +------------------+                |
-+-------------------------------------------------------------+
+                              TRAINING LOOP
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  ┌────────────┐     ┌─────────────┐     ┌────────────────────────┐ │
+  │  │  CRSim     │◄───►│ Gumbel-     │◄───►│  CRStarNet             │ │
+  │  │  (crsim/)  │     │ MuZero      │     │  entity-transformer    │ │
+  │  │  50ms tick  │     │ 16 sims,    │     │  + spatial ResNet      │ │
+  │  │  18×32 grid │     │ seq-halving │     │  + LSTM core           │ │
+  │  └─────┬──────┘     └─────────────┘     │  + autoregressive head │ │
+  │        │                                 └──────────┬─────────────┘ │
+  │        │ trajectories                               │ gradients     │
+  │        ▼                                            │               │
+  │  ┌──────────────────┐    ┌─────────────────────────┘               │
+  │  │ Replay Buffer    │───►│ TrainerV2                                │
+  │  │ 50K ring, f16    │    │ AdamW + AMP + cosine LR                 │
+  │  │ PER sampling     │    │ aux heads + dynamics + pruning           │
+  │  └──────────────────┘    └─────────────────────────────────────────┘
+  │                                                                     │
+  │  ┌──────────────────────────────────────────────────────────────┐   │
+  │  │  AlphaStar League                                            │   │
+  │  │  3 main + 2 league-exploiters + 2 main-exploiters            │   │
+  │  │  PFSP opponent selection, exploiter reset at 70% WR          │   │
+  │  └──────────────────────────────────────────────────────────────┘   │
+  └─────────────────────────────────────────────────────────────────────┘
+
+                          REAL-TIME PIPELINE
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Screen ──► YOLOv8 + OCR ──► PerceivedState ──► CRStarNet ──► ADB │
+  │  (realtime/perception.py)   (realtime/pipeline.py)  (controller.py)│
+  └─────────────────────────────────────────────────────────────────────┘
 ```
 
-> **Doc vs. shipped defaults.** This document describes the GPU-scale
-> *production target* (e.g. 800-sim MCTS, a 256-filter / 20-block ResNet,
-> 2×A100 DDP). The shipped code defaults are smaller and faster — Gumbel-MuZero
-> search (16 sims, sequential halving) over `CRStarNet` (128 filters, 10
-> blocks) — and scale up via config when GPU hardware is available. Concrete
-> interface numbers below (tick rate, action-space size, channel counts) match
-> the code.
-
-### Why AlphaZero for Clash Royale?
-
-| Property           | Go / Chess        | Clash Royale               |
-|--------------------|-------------------|----------------------------|
-| Turn structure     | Alternating       | Simultaneous / real-time   |
-| Action space       | ~361 (Go)         | 2306 (card × position)     |
-| State observability| Perfect           | Partial (opponent hand)    |
-| Time dimension     | None              | Continuous (elixir, timer) |
-| Branching factor   | ~250 (Go)         | up to 2306                 |
-
-To handle real-time + simultaneous play, we **discretize time into 50 ms ticks** (20 Hz) and
-treat each tick as a simultaneous-move game. MCTS searches over the joint action
-space with **opponent modeling** (the NN predicts both players' policies).
+**Shipped defaults vs. production target.**  The code ships with lightweight
+defaults (Gumbel 16-sim, CRStarNet 128 filters / 10 blocks) that run on CPU.
+Config knobs scale to GPU hardware: 800-sim MCTS, 256 filters / 20 blocks,
+8×A100 DDP. All interface dimensions below match the shipped code.
 
 ---
 
-## 2. Game Simulator (CRSim)
+## 2. Game Simulator (`crsim/`)
 
-### 2.1 Arena
+### 2.1 Arena Geometry
 
-- **Grid**: 18 × 32 tiles (width × height)
-- **River**: rows 15–16, passable only at two bridge columns (3–4 and 13–14)
-- **Towers**: per side — 1 King Tower (center back), 2 Princess Towers (flanks)
-- **Placement zones**: your own half (rows 0–14 for player 0, rows 17–31 for player 1),
-  excluding tower tiles and river
+- **Grid**: `ARENA_W=18` columns × `ARENA_H=32` rows
+- **River**: rows 15-16, passable at two bridges (cols 3-4 and 13-14)
+- **Towers**: per side: 1 King Tower (center-back) + 2 Princess Towers (flanks)
+- **Placement zones**: your own half, excluding towers and river
 
 ```
 Row 31  ┌──────────────────────────────────┐
         │          ENEMY KING (9,30)       │
 Row 29  │   PRINCESS(4,27)  PRINCESS(13,27)│
-        │                                  │
         │         ENEMY HALF               │
-Row 17  │~~BRIDGE~~  RIVER  ~~BRIDGE~~     │
-Row 16  │~~(3-4)~~  (river) ~~(13-14)~~   │
+Row 17  │                                  │
+Row 16  │~~BRIDGE~~  RIVER  ~~BRIDGE~~     │
+Row 15  │~~(3-4)~~         ~~(13-14)~~     │
         │         ALLY HALF                │
-Row 2   │   PRINCESS(4,4)   PRINCESS(13,4) │
-Row 0   │          ALLY KING (9,1)         │
-        └──────────────────────────────────┘
+Row 4   │   PRINCESS(4,4)   PRINCESS(13,4) │
+Row 1   │          ALLY KING (9,1)         │
+Row 0   └──────────────────────────────────┘
 ```
 
 ### 2.2 Time Model
 
-- **Tick rate**: 2 Hz (one tick = 0.5 real seconds)
-- **Regular time**: 360 ticks (3 minutes)
-- **Overtime**: 360 ticks (3 minutes, 2× elixir regen)
-- **Sudden death**: 360 ticks (3 minutes, 3× elixir)
-- **Elixir regen**: 1 elixir per 2.8 s → ~0.179 per tick (normal),
-  doubled/tripled in overtime/sudden death
+| Phase        | Duration     | Elixir Rate      | Trigger                    |
+|-------------|-------------|------------------|----------------------------|
+| Regular     | 360 ticks   | 0.1786/tick      | Game start                 |
+| Double Elixir| continues  | 2× (0.3571/tick) | 2:00 remaining             |
+| Overtime    | 360 ticks   | 2× rate          | Tie at regulation end      |
+| Sudden Death| 360 ticks   | 3× rate          | Tie at overtime end        |
 
-### 2.3 Card Roster (20 Core Cards)
+- **Tick duration**: 50ms (20 Hz). Set via `TICK_DURATION`.
+- **Decision interval**: 10 ticks (0.5s) — agents re-decide every 10 ticks.
+- **Max elixir**: 10.0, regen capped at max.
 
-| Card            | Type     | Cost | HP   | DPS  | Speed  | Range | Target   |
-|-----------------|----------|------|------|------|--------|-------|----------|
-| Knight          | Troop    | 3    | 1452 | 167  | Medium | Melee | Ground   |
-| Archers         | Troop    | 3    | 304  | 107  | Medium | 5.0   | Air+Gnd  |
-| Musketeer       | Troop    | 4    | 598  | 176  | Medium | 6.0   | Air+Gnd  |
-| Giant           | Troop    | 5    | 3344 | 120  | Slow   | Melee | Buildings|
-| Mini PEKKA      | Troop    | 4    | 1056 | 325  | Fast   | Melee | Ground   |
-| Valkyrie        | Troop    | 4    | 1654 | 126  | Medium | Melee | Ground   |
-| Wizard          | Troop    | 5    | 598  | 176  | Medium | 5.5   | Air+Gnd  |
-| Hog Rider       | Troop    | 4    | 1408 | 176  | V.Fast | Melee | Buildings|
-| Minions         | Troop    | 3    | 190  | 84   | Fast   | 2.0   | Air+Gnd  |
-| Baby Dragon     | Troop    | 4    | 1064 | 100  | Fast   | 3.5   | Air+Gnd  |
-| Skeleton Army   | Troop    | 3    | 67×15| 67×15| Fast   | Melee | Ground   |
-| Goblin Barrel   | Spell    | 3    | 167×3| 99×3 | —      | —     | Ground   |
-| Fireball        | Spell    | 4    | —    | 572  | —      | 2.5   | Area     |
-| Arrows          | Spell    | 3    | —    | 243  | —      | 4.0   | Area     |
-| Zap             | Spell    | 2    | —    | 159  | —      | 2.5   | Area     |
-| Lightning       | Spell    | 6    | —    | 877  | —      | 3.5   | 3 targets|
-| Cannon          | Building | 3    | 742  | 127  | —      | 5.5   | Ground   |
-| Inferno Tower   | Building | 5    | 1408 | 40→400| —     | 6.0   | Air+Gnd  |
-| Tombstone       | Building | 3    | 422  | —    | —      | —     | Spawner  |
-| Elixir Collector| Building | 6    | 888  | —    | —      | —     | Elixir   |
+### 2.3 Card Roster
 
-### 2.4 Entity Update Loop (per tick)
+**125 cards** across three entity kinds:
 
-```python
-def tick(game_state):
-    # 1. Regenerate elixir
-    for player in [0, 1]:
-        game_state.elixir[player] += elixir_rate(game_state.phase)
-        game_state.elixir[player] = min(game_state.elixir[player], 10.0)
+| Kind       | Count | Examples                                         |
+|-----------|-------|--------------------------------------------------|
+| Troops    | ~90   | Knight, Archers, PEKKA, Golem, Mega Knight, ...  |
+| Spells    | ~15   | Fireball, Zap, Lightning, Poison, Freeze, ...    |
+| Buildings | ~20   | Cannon, Inferno Tower, Elixir Collector, ...     |
 
-    # 2. Process queued actions (card placements from both players)
-    for action in game_state.pending_actions:
-        spawn_entity(game_state, action)
+All stats sourced from authentic Supercell Level 11 tournament-standard data.
+Cards are enumerated in `CardType` (0=KNIGHT through 124=GUARDIENNE). Each card
+has a `CardDef` with ~60 fields covering cost, HP, DPS, damage, hit speed,
+range, sight range, speed, targeting, spawning, charge, shield, death spawn,
+death damage, splash, crown tower damage %, inferno ramp, and more.
 
-    # 3. Spawner buildings produce units
-    process_spawners(game_state)
+**6 Champions**: Archer Queen, Golden Knight, Skeleton King, Mighty Miner, Monk,
+Little Prince. Each has:
+- Manually-activated ABILITY action (separate from card placement)
+- Ability elixir cost + cooldown timer
+- Unique ability effects (cloak+rage, dash+chain, army-of-dead, underground,
+  deflect, lance+charge)
 
-    # 4. Each entity: acquire target → move → attack
-    for entity in game_state.entities:
-        entity.target = find_target(entity, game_state)
-        if distance(entity, entity.target) > entity.attack_range:
-            move_toward(entity, entity.target, game_state)
-        else:
-            entity.attack_timer -= TICK_DURATION
-            if entity.attack_timer <= 0:
-                deal_damage(entity, entity.target)
-                entity.attack_timer = entity.attack_interval
+**35 Evolutions** (defined in `crsim/evolutions.py`): Barbarians, Knight,
+Archers, Valkyrie, Tesla, PEKKA, Mega Knight, etc. Each has:
+- Cycle count (1-2 deploys before evolved form available)
+- Special ability (damage reduction, spawn-on-attack, knockback, heal, etc.)
+- Optional stat boosts (HP%, attack speed%)
 
-    # 5. Remove dead entities, check win conditions
-    remove_dead(game_state)
-    check_win(game_state)
+### 2.4 Entity System (`crsim/entities.py`)
+
+Each in-game unit is an `Entity` dataclass with 80+ fields:
+
+```
+Core:       entity_id, card_type, owner, x, y, hp, max_hp
+Combat:     dps, damage_per_hit, hit_speed, attack_range, sight_range
+            attack_timer, target_id, target_mode (GROUND/AIR_AND_GROUND/BUILDINGS)
+Movement:   speed, is_flying, velocity_x, velocity_y
+Mechanics:  is_charging, charge_distance, charge_damage_mult
+            has_shield, shield_hp
+            death_spawn_card_type, death_spawn_count, death_spawn_hp
+            death_damage, death_damage_radius
+            is_splash, splash_radius, crown_tower_damage_percent
+            minimum_range, hit_count
+Status:     freeze_timer, slow_timer, stun_timer, poison_timer, rage_timer
+            invisible_timer, damage_reduction_timer
+Champion:   is_champion, ability_cost, ability_cooldown, ability_cooldown_timer
+            attack_speed_timer
+Evolution:  is_evolved, evo_shield, evo_shield_mult
 ```
 
-### 2.5 Pathfinding
+### 2.5 Game Loop (`crsim/game.py`)
 
-Troops navigate a **flow field** precomputed per target type:
-- **Ground buildings-only** (Giant, Hog Rider): shortest path to nearest enemy building
-  via a bridge
-- **Ground any-target**: path toward nearest enemy, crossing bridges if needed
-- **Air**: straight-line (no obstacles)
+`CRGame.step(actions: list[Action])` advances one tick:
 
-Flow fields are cached for each (side, target-mode) combination and recomputed only
-when buildings are created/destroyed (rare). This avoids per-entity A* overhead.
-
-### 2.6 Vectorized Simulation
-
-For training throughput, we run N games in parallel using NumPy:
-
-```python
-class VectorizedCRSim:
-    """Runs N independent games in a single batched update."""
-    def __init__(self, n_envs: int):
-        # Entity storage: [n_envs, max_entities, feature_dim]
-        self.positions = np.zeros((n_envs, MAX_ENTITIES, 2), dtype=np.float32)
-        self.hp        = np.zeros((n_envs, MAX_ENTITIES), dtype=np.float32)
-        self.alive     = np.zeros((n_envs, MAX_ENTITIES), dtype=bool)
-        # ...
 ```
+1. Regenerate elixir for both players
+2. Process queued actions:
+   - Card placements → spawn entities (deduct elixir, cycle hand)
+   - Champion ability → dispatch to ability handler
+3. Spawner buildings produce units (if interval elapsed)
+4. For each entity:
+   a. Acquire target (nearest enemy matching target_mode)
+   b. Move toward target (flow-field pathfinding)
+   c. If in range: attack (apply damage, splash, death effects)
+   d. Tick status effects (freeze, slow, poison, rage, stun)
+5. Remove dead entities (trigger death spawns, death damage)
+6. Check win conditions (tower destruction, crown count, time)
+7. Handle game phase transitions (overtime, sudden death)
+```
+
+### 2.6 Pathfinding (`crsim/pathfinding.py`)
+
+Pre-computed **flow fields** per (side, target-mode):
+- Ground buildings-only: shortest path to nearest enemy building via bridge
+- Ground any-target: path toward nearest enemy through bridges
+- Air: straight-line (ignore terrain)
+
+Cached and recomputed only when buildings are created/destroyed. O(1) per
+entity per tick via flow field lookup.
+
+### 2.7 Vectorized Self-Play (`training/vectorized_selfplay.py`)
+
+Runs `n_envs` (default 32) games in lockstep:
+- All active positions evaluated in a **single batched forward pass**
+- Both engine backends supported: Python (`CRGame`) or Rust (`CRGameRust`)
+- Temperature annealing: full exploration → greedy after N decisions
+- Horizontal flip augmentation (50% of games)
+- Produces `ReplayEntry` tuples with spatial, scalar, entity, policy, value,
+  and auxiliary targets
 
 ---
 
-## 3. State Representation
+## 3. State Representation (`model/features.py`)
 
-### 3.1 Spatial Features (18 × H=32 × W=18)
+### 3.1 Spatial Features: `(18, ARENA_H=32, ARENA_W=18)`
 
-Rather than one plane per card type (which scales badly with a 125-card pool),
-the encoder uses **18 fixed semantic planes**. Card identity is carried by the
-entity tokens (§3.3) and the scalar one-hots (§3.2), not by the spatial grid.
+18 fixed semantic planes (not one-per-card — scales to any card pool):
 
-| Channel | Constant                 | Description                                   |
-|---------|--------------------------|-----------------------------------------------|
-| 0 / 1   | `CH_FRIENDLY/ENEMY_HP`   | HP-weighted unit density                      |
-| 2 / 3   | `CH_FRIENDLY/ENEMY_DPS`  | DPS-weighted threat density                   |
-| 4 / 5   | `CH_FRIENDLY/ENEMY_GROUND` | Ground-unit density                         |
-| 6 / 7   | `CH_FRIENDLY/ENEMY_AIR`  | Air-unit density                              |
-| 8 / 9   | `CH_FRIENDLY/ENEMY_BUILDING` | Non-tower building HP                     |
-| 10 / 11 | `CH_FRIENDLY/ENEMY_TOWER_HP` | Tower HP at the tower cell                |
-| 12      | `CH_PLACEMENT_MASK`      | Valid placement cells for the current player  |
-| 13      | `CH_STATIC_MAP`          | River = 1.0, bridge = 0.5                      |
-| 14 / 15 | `CH_FRIENDLY/ENEMY_WINCON` | Building-targeting (win-condition) density  |
-| 16 / 17 | `CH_FRIENDLY/ENEMY_READY` | Attack-ready unit density                    |
+| Ch  | Name                       | Content                              |
+|-----|----------------------------|--------------------------------------|
+| 0-1 | `FRIENDLY/ENEMY_HP`        | HP-weighted Gaussian density         |
+| 2-3 | `FRIENDLY/ENEMY_DPS`       | DPS-weighted threat density          |
+| 4-5 | `FRIENDLY/ENEMY_GROUND`    | Ground-unit density                  |
+| 6-7 | `FRIENDLY/ENEMY_AIR`       | Air-unit density                     |
+| 8-9 | `FRIENDLY/ENEMY_BUILDING`  | Non-tower building HP                |
+|10-11| `FRIENDLY/ENEMY_TOWER_HP`  | Tower HP at tower cell               |
+| 12  | `PLACEMENT_MASK`           | Valid placement cells for this player|
+| 13  | `STATIC_MAP`               | River=1.0, bridge=0.5                |
+|14-15| `FRIENDLY/ENEMY_WINCON`    | Building-targeting unit density      |
+|16-17| `FRIENDLY/ENEMY_READY`     | Attack-ready unit density            |
 
-**Total: 18 spatial planes** (`SPATIAL_CHANNELS`), each `ARENA_H × ARENA_W` =
-32 × 18. Densities are Gaussian-splatted (σ = 0.5 tiles).
+Densities are Gaussian-splatted (σ=0.5 tiles) around entity positions.
 
-### 3.2 Scalar Features (length `SCALAR_FEATURES` = 641)
+### 3.2 Scalar Features: length `SCALAR_FEATURES = 641`
 
-`SCALAR_FEATURES = 2 + 5 × NUM_CARD_TYPES + 14`, which is **641** for the
-125-card pool. The per-card blocks are one-hot/intensity vectors over the full
-card set (hand slots, next card, etc.), so this grows with the card pool:
+`641 = 2 + 5×125 + 14`:
 
-| Feature group                          | Size                 |
-|----------------------------------------|----------------------|
-| Globals (elixir, phase)                | 2                    |
-| Per-card blocks (× 5 over card pool)   | 5 × 125 = 625        |
-| Time / tower status / tower HP / score | 14                   |
+| Group                        | Size      | Detail                          |
+|-----------------------------|-----------|---------------------------------|
+| Globals                     | 2         | elixir/10, game phase           |
+| Hand cards (4 slots)        | 4×125=500 | One-hot over card pool per slot |
+| Next card                   | 125       | One-hot over card pool          |
+| Time remaining              | 1         | normalized to [0,1]             |
+| Tower alive flags           | 6         | 3 per side (king, L, R)         |
+| Tower HP                    | 6         | 3 per side, normalized          |
+| Crown score diff            | 1         | (my-opp)/3                      |
 
-### 3.3 Entity Tokens (64 × 40)
+### 3.3 Entity Tokens: `(MAX_ENTITY_SLOTS=64, ENTITY_FEATURE_DIM=40)`
 
-The primary network also consumes a variable-length **entity list**: up to
-`MAX_ENTITY_SLOTS = 64` units, each encoded as a `ENTITY_FEATURE_DIM = 40`-d
-token (position, velocity, HP, status timers, champion readiness, evolved
-state, tower flag, …) and processed by a self-attention transformer. This is
-what lets the network reason about individual units regardless of card pool
-size. See `model/features.py::extract_entity_features`.
+Variable-length entity list for the EntityTransformer:
 
-### 3.4 Encoding Details
+```
+Per entity (40-d):
+  type_id / NUM_CARD_TYPES          (card identity, normalized)
+  owner                             (0=friendly, 1=enemy)
+  x / ARENA_W, y / ARENA_H         (position, normalized)
+  hp / max_hp                       (health fraction)
+  dps, damage_per_hit               (normalized combat stats)
+  hit_speed, attack_range           (attack parameters)
+  speed, is_flying                  (movement)
+  target_mode                       (ground/air/buildings encoding)
+  is_splash, splash_radius          (area damage)
+  attack_timer / hit_speed          (readiness)
+  has_shield, shield_hp             (shield state)
+  is_charging                       (charge state)
+  freeze/slow/stun/poison_timer     (status effects)
+  is_champion, ability_ready        (champion state)
+  is_evolved                        (evolution state)
+  is_tower                          (tower flag)
+```
 
-- All spatial and scalar values are normalized to approximately [0, 1] or [-1, 1]
-- The state is always encoded from the **perspective of the current player** — the
-  board is flipped vertically for player 1 so the network always "sees" its own side
-  at the bottom. This halves the effective state space.
+Mask: `(64,)` bool — True for occupied slots, False for padding.
+
+### 3.4 Perspective Normalization
+
+State is always encoded from the **acting player's perspective**:
+- Player 1's board is flipped vertically so the NN always sees its own
+  side at the bottom. This halves the effective state space.
+
+### 3.5 Auxiliary Targets (`extract_auxiliary_targets`)
+
+For richer training signal:
+- **Crown target**: 7-class (crown diff from -3 to +3)
+- **Tower HP target**: `(6,)` — HP fraction of all 6 towers at game end
+- **Game length target**: normalized final tick count
 
 ---
 
-## 4. Action Space
+## 4. Action Space (`crsim/actions.py`, `crsim/constants.py`)
 
-### 4.1 Discrete Formulation
+### 4.1 Layout
 
 ```
-Action = (card_index, x, y)  or  ABILITY  or  WAIT
+ACTION_SPACE_SIZE = 2306
 
-card_index ∈ {0, 1, 2, 3}     (4 hand slots)
-x          ∈ {0, ..., 17}     (18 columns)
-y          ∈ {0, ..., 31}     (32 rows)
+[0, 2304)       Card placements: slot × ARENA_W × ARENA_H
+                 id = slot * 576 + x * 32 + y
+                 slot ∈ {0,1,2,3}, x ∈ {0..17}, y ∈ {0..31}
 
-Total actions = 4 × 18 × 32 + ABILITY + WAIT = 2306
+2304             ABILITY_ACTION — activate champion ability
+2305             WAIT_ACTION — do nothing (bank elixir)
 ```
 
 ### 4.2 Action Masking
 
-Invalid actions are masked before softmax:
-- Not enough elixir for the card → mask all (card, *, *) actions
-- Position outside valid placement zone → mask that (card, x, y)
-- Position in river/on tower → mask
+Invalid actions masked to `-1e9` before softmax:
+- Not enough elixir for card in that slot
+- Position outside valid placement zone (enemy half, river, tower tiles)
+- ABILITY masked when no champion deployed or on cooldown
+- WAIT is always valid
 
-The mask is a binary vector of length 2306, applied as:
-```python
-logits[~mask] = -1e9  # before softmax
-```
+### 4.3 Autoregressive Decomposition (CRStarNet)
+
+For training efficiency, CRStarNet also supports autoregressive action
+factoring: sample **card_slot** (5-way: 4 slots + wait) → **x_pos** (18-way)
+→ **y_pos** (32-way) sequentially, reducing the effective branching factor.
 
 ---
 
-## 5. Neural Network
+## 5. Neural Networks
 
-### 5.1 Architecture Overview
-
-```
-Spatial Input (44×18×32)           Scalar Input (116)
-       │                                   │
-  Conv2d 3×3, 256                     Linear 256
-       │                                   │
-  20× ResBlock(256)                   ReLU + Linear 256
-       │                                   │
-       └───────── Concat ─────────────────┘
-                    │
-            ┌───────┴───────┐
-            │               │
-       Policy Head     Value Head
-            │               │
-      Conv 1×1, 2       Conv 1×1, 1
-      BN + ReLU         BN + ReLU
-      Flatten           Flatten
-      Linear→2305       Linear→256
-      (+ action mask)   ReLU
-                        Linear→1
-                        Tanh
-            │               │
-       π (policy)      v (value)
-```
-
-### 5.2 Residual Block
+### 5.1 CRZeroNet (`model/network.py`) — Baseline
 
 ```
-x ──→ Conv2d 3×3 → BN → ReLU → Conv2d 3×3 → BN → (+x) → ReLU
-       256 filters        256 filters
+Spatial (18,32,18) ──► Conv(18→256) ──► 20× SE-ResBlock(256) ──► global pool
+                                                                      │
+Scalar (641,)      ──► Linear(641→256) ──► ReLU ──► Linear(256) ──────┤
+                                                                      │ concat
+                                                                      ▼
+                                                                   merged
+                                                    ┌─────────────────┤
+                                                    ▼                 ▼
+                                              Policy Head       Value Head
+                                              Conv→Linear       Conv→Linear
+                                              → 2306 logits     → Tanh → (1,)
 ```
 
-With **Squeeze-and-Excitation** (SE) after the second BN:
+SE-ResBlock: `Conv3×3 → BN → ReLU → Conv3×3 → BN → SE(r=16) → (+skip) → ReLU`
+
+### 5.2 CRStarNet (`model/transformer_net.py`) — Primary
+
+Five parallel encoding towers fused through an LSTM core:
+
 ```
-                   ... → BN → SE(reduction=16) → (+x) → ReLU
+Entity tokens (64,40)     Spatial (18,32,18)     Scalar (641,)   Belief (128,)
+       │                         │                     │              │
+  EntityEncoder             SpatialEncoder        ScalarEncoder  BeliefEncoder
+  3-layer self-attn         10× SE-ResBlock       641→256→128    128→64
+  CLS aggregation           global avg pool
+  → (128,)                  → (128,)              → (128,)       → (64,)
+       │                         │                     │              │
+       └─────────────┬───────────┘                     │              │
+                     │         ┌────────────────────────┘              │
+                     └─────────┤                                      │
+                               ▼                                      │
+                         concat (128+128+128+64 = 448) ◄──────────────┘
+                               │
+                         fusion Linear(448→512)
+                               │
+                         LSTMCore (2-layer, hidden=512)
+                               │
+                     ┌─────────┼─────────┬──────────┐
+                     ▼         ▼         ▼          ▼
+               FlatPolicy   Value   AuxHeads   OpponentHead
+               →2306        →Tanh   crown(7)   deck(125)
+                                    tower(6)   next(125)
+                                    length(1)  elixir(1)
+                     │
+              AutoregressivePolicyHead
+              card(5) → x(18) → y(32)
 ```
 
-SE lets the network learn channel-wise attention — e.g., "pay more attention to the
-Hog Rider channel when deciding defense."
+**EntityEncoder**: type embedding (32-d) + input projection to 128-d, 3
+transformer layers with 4 heads each, CLS token aggregation for a fixed-size
+(128,) summary.
+
+**DynamicsModel** (EfficientZero-style): `state + action_embed → next_state +
+reward`. Used for model-based planning and trained with dynamics loss.
 
 ### 5.3 Hyperparameters
 
-| Param              | Value  |
-|--------------------|--------|
-| Residual blocks    | 20     |
-| Filters per block  | 256    |
-| SE reduction ratio | 16     |
-| Scalar embed dim   | 256    |
-| Policy output dim  | 2305   |
-| Optimizer          | AdamW  |
-| Learning rate      | 2e-4 → cosine decay to 1e-5 |
-| Weight decay       | 1e-4   |
-| Batch size         | 2048   |
-| Mixed precision    | FP16 (AMP on A100) |
+| Param                | Default (shipped)     | Production target    |
+|---------------------|-----------------------|----------------------|
+| Spatial filters      | 128                   | 256                  |
+| Spatial ResBlocks    | 10                    | 20                   |
+| SE reduction ratio   | 16                    | 16                   |
+| Entity embed dim     | 128                   | 128                  |
+| Entity transformer layers | 3              | 6                    |
+| LSTM hidden          | 512                   | 512                  |
+| Optimizer            | AdamW                 | AdamW                |
+| Learning rate        | 3e-4 → cosine decay   | 3e-4 → 1e-5         |
+| Weight decay         | 1e-4                  | 1e-4                 |
+| Batch size           | 2048                  | 2048                 |
+| Grad clip            | 1.0                   | 1.0                  |
+| Mixed precision      | FP16 AMP              | FP16 AMP             |
 
 ### 5.4 Loss Function
 
 ```
-L = L_policy + c_v * L_value + c_l2 * L_reg
+L = L_policy + L_value + 0.3 × L_aux + 0.5 × L_dynamics
 
-L_policy = -π_mcts · log(π_nn)          (cross-entropy)
-L_value  = (v_nn - z)²                  (MSE, z ∈ {-1, 0, +1})
-L_reg    = Σ||θ||²                       (weight decay via AdamW)
-
-c_v  = 1.0
-c_l2 = handled by AdamW weight_decay
+L_policy   = -π_target · log_softmax(logits)        (KL from MCTS targets)
+L_value    = MSE(v_pred, z)                          (z ∈ {-1, 0, +1})
+L_aux      = CE(crown_logits, crown_target)
+           + MSE(tower_hp_pred, tower_hp_target)
+           + MSE(game_length_pred, game_length_target)
+L_dynamics = MSE(predicted_next_state, detach(actual_next_state))
 ```
+
+**KataGo policy target pruning**: actions with visit count < 2% of total are
+zeroed from the target distribution to prevent learning MCTS noise.
 
 ---
 
-## 6. Monte Carlo Tree Search (MCTS)
+## 6. Search (`mcts/`)
 
-### 6.1 Algorithm (AlphaZero variant)
+### 6.1 Gumbel-MuZero (`mcts/gumbel_search.py`) — Primary
 
-For each game state, MCTS runs **N_sim = 800 simulations**.
+From "Policy improvement by planning with Gumbel" (ICLR 2022):
 
-**SELECT**: From root, traverse the tree by choosing the action that maximizes:
+1. **Gumbel-Top-k**: add Gumbel noise to log-priors, select top-k actions
+   (k=16 by default) without replacement
+2. **Sequential Halving**: allocate simulations in phases, halving the
+   candidate set each phase — guaranteed policy improvement
+3. **Improved policy**: `π_improved(a) ∝ π(a) · exp(Q(a) / σ)` where
+   `σ = c_scale × (c_visit + max_visits)`
+
+16 simulations instead of 800 → ~50× faster inference.
+
 ```
-UCB(s, a) = Q(s, a) + c_puct · P(s, a) · √(N_parent) / (1 + N(s, a))
+Config defaults:
+  n_simulations:       16
+  max_considered:      16
+  c_visit:             50.0
+  c_scale:             1.0
+  dirichlet_alpha:     0.15
+  dirichlet_frac:      0.25
+  playout_cap_rand:    True (KataGo-style, range [4, 32])
+  rollout_ticks:       8 (roll forward one decision interval before bootstrap)
 ```
 
-Where:
-- Q(s,a): mean value of subtree
-- P(s,a): prior probability from neural network
-- N(s,a): visit count
-- c_puct = 2.5
+Each simulation: apply candidate action → sample opponent action from policy →
+roll forward `rollout_ticks` with WAITs → bootstrap value from NN. This ensures
+the bootstrap reflects the action's consequences.
 
-**EXPAND + EVALUATE**: At a leaf node, run the neural network to get (π, v).
-Create child nodes with P(s,a) = π(a).
+### 6.2 Vanilla MCTS (`mcts/search.py`)
 
-**BACKUP**: Propagate v back up the tree, updating Q and N for each ancestor.
+Standard AlphaZero UCB search: `UCB(s,a) = Q(s,a) + c_puct · P(s,a) · √N_parent / (1+N(s,a))`.
+Supports virtual loss for parallel search.
 
-### 6.2 Simultaneous Moves
+### 6.3 MuZero Search (`mcts/muzero_search.py`)
 
-Since both players act simultaneously, we use a **double-oracle** approach:
+Extends vanilla MCTS with a learned dynamics model: instead of cloning the
+game, the search operates in latent space using `DynamicsModel` predictions.
 
-1. At each MCTS node, the state includes both players' perspectives
-2. The "move" at each node is a joint action (a₁, a₂)
-3. In practice, we sample the opponent's action from their policy (predicted by the NN)
-   and search only over our own actions
+### 6.4 Simultaneous Moves
 
-This is equivalent to **Smooth UCT** — it converges to a Nash equilibrium in
-self-play, which is exactly what we want.
-
-### 6.3 Root Enhancements
-
-- **Dirichlet noise**: At the root node, add exploration noise:
-  `P(s,a) = 0.75 · π_nn(a) + 0.25 · Dir(α=0.15)`
-- **Temperature**: For the first 20 moves, sample proportional to visit counts:
-  `π(a) ∝ N(s,a)^(1/τ)` with τ=1. After move 20, τ→0 (pick the most-visited).
-
-### 6.4 Virtual Loss (for parallel search)
-
-When running MCTS with multiple threads, apply virtual loss = 3 to avoid thread
-collision on the same path. This encourages diverse exploration.
+Both players act simultaneously. The search samples the opponent's action from
+the NN's predicted policy and searches only over our own actions — equivalent
+to **Smooth UCT**, converging to Nash equilibrium in self-play.
 
 ---
 
-## 7. Self-Play Pipeline
+## 7. Training Pipeline
 
-### 7.1 Architecture
+### 7.1 Data Flow
 
 ```
-                        ┌──────────────────────────┐
-                        │   Parameter Server        │
-                        │   (latest model weights)  │
-                        └───────────┬──────────────┘
-                                    │ broadcast
-                 ┌──────────────────┼──────────────────┐
-                 │                  │                   │
-        ┌────────┴──────┐  ┌───────┴───────┐  ┌───────┴───────┐
-        │ Self-Play      │  │ Self-Play      │  │ Self-Play      │
-        │ Worker (GPU 0) │  │ Worker (GPU 1) │  │ ... (GPU 5)   │
-        │ 64 parallel    │  │ 64 parallel    │  │ 64 parallel    │
-        │ games          │  │ games          │  │ games          │
-        └───────┬────────┘  └───────┬────────┘  └───────┬────────┘
-                │                   │                    │
-                └───────────────────┼────────────────────┘
-                                    │ (s, π, z) tuples
-                                    v
-                        ┌──────────────────────────┐
-                        │   Replay Buffer           │
-                        │   (500K positions,        │
-                        │    ring buffer)            │
-                        └───────────┬──────────────┘
-                                    │ sample batches
-                                    v
-                        ┌──────────────────────────┐
-                        │   Trainer (GPU 6–7, DDP)  │
-                        │   batch=2048, AdamW       │
-                        └──────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                     DATA FLOW                                   │
+  │                                                                 │
+  │  CRGame.step()                                                  │
+  │       │                                                         │
+  │       ▼                                                         │
+  │  encode_state(game, player)                                     │
+  │       │                                                         │
+  │       ├──► spatial (18, 32, 18)  ──┐                            │
+  │       ├──► scalar (641,)         ──┤                            │
+  │       └──► entity (64, 40) + mask──┤                            │
+  │                                    ▼                            │
+  │                              CRStarNet.forward()                │
+  │                                    │                            │
+  │                         ┌──────────┼──────────┐                 │
+  │                         ▼          ▼          ▼                 │
+  │                    policy(2306) value(1) aux_targets             │
+  │                         │          │                            │
+  │                         ▼          ▼                            │
+  │                    action sampling + game outcome                │
+  │                         │                                       │
+  │                         ▼                                       │
+  │                    ReplayEntry                                   │
+  │                    {spatial, scalar, entity, mask,               │
+  │                     policy, value, crown, tower_hp, game_len}   │
+  │                         │                                       │
+  │                         ▼                                       │
+  │                    ReplayBuffer (50K ring, float16)              │
+  │                         │                                       │
+  │                         ▼                                       │
+  │                    TrainerV2.train_step()                        │
+  │                    sample_full(2048) → forward → loss → backward│
+  └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 7.2 GPU Allocation (8× A100 80GB)
+### 7.2 Replay Buffer (`training/replay_buffer.py`)
 
-| GPUs  | Role           | Details                                           |
-|-------|----------------|---------------------------------------------------|
-| 0–5   | Self-play      | 64 vectorized envs/GPU × MCTS, ~200 games/min    |
-| 6–7   | Training (DDP) | Batch 2048, ~15 updates/sec with AMP              |
+- **Ring buffer**: capacity 50K positions (configurable)
+- **Storage**: spatial + entity features in **float16** to halve memory;
+  scalar/policy in float32
+- **Sampling**: uniform `sample()` or `sample_full()` (with entity + aux);
+  also `sample_prioritized()` with PER (alpha=0.6, beta=0.4)
+- Thread-safe with lock for concurrent self-play workers + trainer
 
-**Estimated throughput**: ~1200 games/minute → ~1.7M games in 24 hours.
+### 7.3 TrainerV2 (`training/trainer_v2.py`)
 
-### 7.3 Game Generation Loop
+- **AdamW** with cosine annealing warm restarts (T_0=10K, T_mult=2)
+- **FP16 AMP** via GradScaler
+- **Gradient clipping**: max norm 1.0
+- **KataGo policy pruning**: zero targets below 2% of total visits
+- **Auxiliary losses**: crown CE + tower HP MSE + game length MSE (weight 0.3)
+- **Dynamics loss**: predict next latent state from current + action (weight 0.5)
+- **Checkpointing**: every 5K steps, saves model + optimizer + scheduler +
+  scaler state
+- **TensorBoard logging**: loss/policy, loss/value, loss/aux, loss/dynamics,
+  grad_norm, lr, buffer_size
+
+### 7.4 Imitation Warm-Start (`training/imitation.py`)
+
+Two warm-start methods to bootstrap before self-play:
+
+1. **Behavioral Cloning**: record `(state, action, outcome)` from MetaAgent
+   playing on the verified engine → supervise policy (CE) + value (MSE).
+   `generate_expert_dataset()` → `.npz` → `train_behavioral_cloning()`.
+
+2. **Value Warm-Start**: regress value head on deck matchup outcomes from
+   external data (Kaggle 37.9M-match dump, KataCR replays). Encode each
+   matchup's initial state, fit `V ≈ outcome`. Accepts JSONL/CSV formats.
+
+### 7.5 AlphaStar League (`training/league.py`)
+
+Three agent types (from Vinyals et al., Nature 2019):
+
+| Type              | Count | Opponent Selection    | Purpose                   |
+|-------------------|-------|-----------------------|---------------------------|
+| Main Agent        | 3     | PFSP (80%) + self (20%)| Final deployed agents    |
+| League Exploiter  | 2     | Uniform over all      | Find global exploits      |
+| Main Exploiter    | 2     | Main agents only      | Patch main agent weaknesses|
+
+**PFSP** (Prioritized Fictitious Self-Play): priority `(1 - win_rate)^p` —
+harder opponents sampled more often. Win rates tracked as exponential moving
+average.
+
+**Exploiter reset**: when mean win rate > 70%, snapshot weights to the frozen
+pool, reset to initial supervised weights, clear history. The exploit becomes a
+"hard opponent" for main agents.
+
+### 7.6 Scale-Up Architecture (GPU)
+
+```
+  GPU 0-5: Self-play workers (VectorizedSelfPlay)
+           64 envs/GPU × batched NN eval
+           ~200 games/min per GPU → ~1200 total
+
+  GPU 6-7: Training (DDP)
+           batch=2048, ~15 updates/sec with AMP
+
+  CPU:     League coordinator, replay buffer, checkpointing
+```
+
+Estimated: ~1.7M games in 24h on 8×A100. Self-play workers pull latest weights
+from parameter server asynchronously.
+
+---
+
+## 8. Evaluation (`eval/`)
+
+### 8.1 Reference Agents (`eval/baseline_agents.py`)
+
+| Agent          | Description                                            |
+|---------------|--------------------------------------------------------|
+| WaitAgent      | Never plays — trivial lower bound                      |
+| RandomAgent    | Random legal placement with configurable play_prob     |
+| HeuristicAgent | Defend threatened lane, push when elixir is banked     |
+| MetaAgent      | Multi-strategy: counter-push, beatdown, cycle, spell   |
+| SearchAgent    | Wraps GumbelMuZeroSearch for NN-based play             |
+
+### 8.2 Elo Ladder (`eval/ladder.py`)
+
+Order-independent Bradley-Terry Elo from full round-robin:
+- Play every pair `n_games` times (sides alternate)
+- Fit Elo via maximum-likelihood MM iteration
+- Bayesian prior (2 virtual draws vs phantom) regularizes extreme records
+- Mean-anchored to 1000 for comparability across runs
+
+### 8.3 Tournament (`eval/tournament.py`)
+
+Online Elo with K-factor — for tracking a moving training run, not for final
+ranking.
+
+---
+
+## 9. Verification (`verification/`)
+
+### 9.1 Cross-Engine Conformance (`verification/conformance.py`)
+
+Compare `crsim` card stats against the vendored oracle (samdickson22/
+clash-simulator data):
+- Per-card: HP, damage, hit_speed, range, sight_range, speed, mana cost
+- Tolerances: 8% for HP/damage, 12% for hit_speed/sight_range, 0.35 tiles
+  for range/radius
+- Kind-aware: spells only compare radius; troops/buildings compare full stats
+
+### 9.2 Behavioral Tests (`tests/test_interactions.py`)
+
+24+ golden interaction scenarios:
+- Fireball+Zap kills Musketeer
+- Knight vs Knight symmetric outcome
+- Giant ignores troops, walks to building
+- Inferno Tower ramps damage
+- Shield break mechanics
+- Death spawn triggers (Golem, Lava Hound)
+- And more
+
+### 9.3 Cross-Engine Behavioral (`tests/test_cross_engine_behavioral.py`)
+
+Run identical scenarios on both Python engine and oracle, compare:
+- Duel outcomes (5/6 duels agree as of R1)
+- Turn-by-turn damage
+
+---
+
+## 10. Perception Pipeline (`realtime/`)
+
+### 10.1 Perception (`realtime/perception.py`)
+
+Screen capture → game state extraction:
+
+1. **Entity detection**: YOLOv8 object detection (troops, buildings, spells)
+   with fallback to color segmentation (blue=friendly, red=enemy)
+2. **Elixir reading**: HSV purple mask on elixir bar region → fill ratio × 10
+3. **Hand detection**: template matching against card art for each slot
+4. **Tower HP**: green/red health bar pixel ratio at tower positions
+
+Coordinate mapping: `screen_to_arena()` / `arena_to_screen()` for 1080×1920
+reference resolution. Arena bounds: pixels (60,310)-(1020,1440).
+
+### 10.2 Opponent Modeling (`model/opponent_model.py`)
+
+Track hidden opponent state during real-time play:
+- **PlayHistoryTracker**: cards seen, last play tick per card
+- **OpponentBeliefState**: estimated elixir (regen model), deck probability
+  distribution, card cycle features
+- Encodes to 128-d feature vector for CRStarNet's belief encoder
+
+### 10.3 Pipeline (`realtime/pipeline.py`)
+
+End-to-end loop: capture → perceive → decide → act via ADB touch.
+Target: <100ms per decision cycle.
 
 ```python
-def self_play_worker(gpu_id, model, replay_buffer):
-    envs = VectorizedCRSim(n_envs=64)
-    mcts = BatchedMCTS(model, n_simulations=800, c_puct=2.5)
-
-    while True:
-        # Get latest model weights (async)
-        model.load_state_dict(param_server.get_latest())
-
-        # Play a batch of games
-        trajectories = []
-        obs = envs.reset()
-
-        while not envs.all_done():
-            # MCTS search (batched NN inference)
-            policies = mcts.search(obs, envs)  # [64, 2305]
-            actions = sample_action(policies, temperature)
-            obs, rewards, dones = envs.step(actions)
-            trajectories.append((obs, policies, actions))
-
-        # Assign game outcomes and push to replay buffer
-        for traj in process_trajectories(trajectories, rewards):
-            replay_buffer.push(traj)
+while running:
+    frame = controller.capture_screen()       # ADB screencap
+    state = perception.process_frame(frame)   # YOLOv8 + OCR
+    action = decide(state)                    # CRStarNet inference
+    if action:
+        controller.play_card(slot, x, y)      # ADB swipe gesture
 ```
 
+### 10.4 Controller (`realtime/controller.py`)
+
+ADB-based touch control:
+- Card drag: swipe from hand slot center to arena target position
+- Screen capture via `adb exec-out screencap -p`
+- Configurable touch delay and drag duration
+
 ---
 
-## 8. Training Loop
+## 11. External Data Sources
 
-### 8.1 Training Step
+| Source                                | Format      | Used For                    |
+|---------------------------------------|-------------|------------------------------|
+| Supercell game data (APK-extracted)   | JSON/CSV    | Card stats via `gamedata_loader.py` |
+| Kaggle 37.9M-match dataset           | CSV/JSONL   | Value warm-start matchups    |
+| KataCR replay dataset                | Replays     | Behavioral cloning data      |
+| samdickson22/clash-simulator          | JSON oracle | Cross-engine verification    |
+| Supercell API `/v1/cards`             | JSON        | Card ID mapping              |
+| cr-csv (smlbiobot)                   | CSV         | Decoded game data CSVs       |
 
-```python
-def train_step(model, optimizer, batch):
-    states, target_policies, target_values = batch
+---
 
-    # Forward pass (AMP)
-    with torch.cuda.amp.autocast():
-        pred_policies, pred_values = model(states)
-        policy_loss = -(target_policies * pred_policies.log_softmax(-1)).sum(-1).mean()
-        value_loss = F.mse_loss(pred_values.squeeze(), target_values)
-        loss = policy_loss + value_loss
+## 12. Key Design Decisions
 
-    # Backward pass
-    scaler.scale(loss).backward()
-    scaler.unscale_(optimizer)
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-    scaler.step(optimizer)
-    scaler.update()
+| Decision                          | Rationale                                       |
+|-----------------------------------|-------------------------------------------------|
+| 50ms ticks (20 Hz)                | Balances fidelity vs search depth               |
+| 18 semantic spatial planes        | Scales to any card pool (vs 1 plane per card)   |
+| Entity transformer + spatial ResNet| Card identity in tokens; spatial for geometry   |
+| LSTM core                         | Temporal reasoning across decisions              |
+| Autoregressive policy head        | card→x→y reduces effective branching 2306→5+18+32|
+| Gumbel-MuZero (16 sims)          | 50× faster than vanilla 800-sim MCTS            |
+| Decision interval = 10 ticks      | Human-like ~2 actions/sec                       |
+| Float16 replay buffer             | Halves memory for large spatial observations     |
+| Perspective-normalized encoding   | Halves effective state space                     |
+| PFSP opponent selection           | Focus training on weaknesses                     |
+| Exploiter reset at 70% WR        | Continuously discover new exploits               |
+
+---
+
+## 13. Module Map
+
 ```
-
-### 8.2 Training Schedule
-
-| Phase   | Hours | Description                                   |
-|---------|-------|-----------------------------------------------|
-| Warmup  | 0–2   | Random play, fill replay buffer               |
-| Phase 1 | 2–8   | Self-play with MCTS (200 sims), τ=1.0        |
-| Phase 2 | 8–16  | Self-play with MCTS (400 sims), anneal τ      |
-| Phase 3 | 16–22 | Full MCTS (800 sims), lower LR                |
-| Phase 4 | 22–24 | Final polish, evaluation, model selection      |
-
-### 8.3 Curriculum
-
-Start simple, add complexity:
-1. **Hours 0–4**: Fixed 8-card "starter" deck vs itself
-2. **Hours 4–12**: Random deck from the 125-card pool
-3. **Hours 12–24**: Deck building included as part of the strategy
-
----
-
-## 9. Evaluation
-
-### 9.1 Model Checkpointing
-
-Every 30 minutes:
-1. Save model checkpoint
-2. Play 100 games against the previous best model
-3. If win rate > 55%, promote to new best model
-4. Track Elo rating over time
-
-### 9.2 Elo System
-
-- Initial Elo: 1000
-- K-factor: 32
-- Track Elo for every checkpoint
-- Plot Elo curve to visualize learning progress
-
-### 9.3 Diagnostic Metrics
-
-- Games per second
-- Average game length
-- Policy entropy (should decrease over training)
-- Value prediction accuracy
-- Elixir efficiency (average elixir spent vs damage dealt)
-- Win rate by deck composition
-
----
-
-## 10. Deployment & Inference
-
-For real-time play against humans:
-- Single GPU inference with MCTS (200 sims) runs in < 250ms per decision
-- Decision made every few ticks (decision interval) = well within real-time
-- Can interface with the actual game via screen capture + touch simulation
-  (requires separate integration layer)
-
----
-
-## 11. Key Design Decisions
-
-| Decision                        | Rationale                                            |
-|---------------------------------|------------------------------------------------------|
-| 50 ms tick rate (20 Hz)         | Balances fidelity vs search depth                    |
-| 125-card roster                 | Authentic Supercell card set (+10 champions, 35 evos) |
-| 18×32 grid                     | Matches actual arena proportions                      |
-| 256 filters, 20 ResBlocks      | Sweet spot for A100 throughput vs capacity            |
-| 800 MCTS simulations           | AlphaZero default; 200–400 used in early phases      |
-| Opponent action sampling        | Practical approximation for simultaneous moves        |
-| Flow-field pathfinding          | O(1) per entity per tick; precomputed                 |
-| Ring replay buffer              | Prioritizes recent self-play data                     |
-
----
-
-## 12. Extensions (Post-24h)
-
-1. **Full card roster** (100+ cards)
-2. **Learned deck building** (meta-game optimization)
-3. **Opponent modeling** (adapt to specific play styles)
-4. **Transfer to real game** (screen capture + touch API integration)
-5. **Population-based training** (PBT for hyperparameter tuning)
-6. **Larger network** (40 ResBlocks, 384 filters) with more compute
+clash-royale-zero/
+├── crsim/                    # Game simulator
+│   ├── game.py               #   CRGame: tick loop, action handling, win conditions
+│   ├── entities.py           #   Entity dataclass (80+ fields)
+│   ├── cards.py              #   125 CardType enum + CardDef with authentic stats
+│   ├── constants.py          #   Arena geometry, timing, action space dimensions
+│   ├── actions.py            #   Canonical action codec (flat id ↔ Action)
+│   ├── evolutions.py         #   35 EvolutionDef with ability effects
+│   ├── heroes.py             #   Champion ability definitions
+│   ├── pathfinding.py        #   Flow-field pathfinding
+│   ├── hidden_stats.py       #   Hidden/derived card stats
+│   ├── gamedata.py           #   Legacy game data
+│   ├── gamedata_loader.py    #   Load stats from JSON/CSV/API
+│   └── rust_adapter.py       #   CRGameRust wrapper for native engine
+│
+├── model/                    # Neural networks
+│   ├── network.py            #   CRZeroNet: ResNet + SE baseline
+│   ├── transformer_net.py    #   CRStarNet: entity-xformer + LSTM + heads
+│   ├── features.py           #   encode_state, entity features, aux targets
+│   └── opponent_model.py     #   Opponent belief state tracking
+│
+├── mcts/                     # Search algorithms
+│   ├── gumbel_search.py      #   Gumbel-MuZero (primary, 16 sims)
+│   ├── search.py             #   Vanilla AlphaZero MCTS
+│   ├── muzero_search.py      #   MuZero (latent-space search)
+│   └── is_mcts.py            #   Information-set MCTS variant
+│
+├── training/                 # Training infrastructure
+│   ├── vectorized_selfplay.py#   Batched self-play generation
+│   ├── trainer_v2.py         #   TrainerV2: AdamW + AMP + aux + dynamics
+│   ├── replay_buffer.py      #   Ring buffer with PER + entity features
+│   ├── league.py             #   AlphaStar league (PFSP, exploiters)
+│   ├── imitation.py          #   BC warm-start + value warm-start
+│   ├── curriculum.py         #   Training curriculum stages
+│   ├── distributed.py        #   DDP / multi-GPU coordination
+│   ├── domain_randomization.py#  Domain randomization for robustness
+│   ├── self_play.py          #   Legacy single-game self-play
+│   ├── self_play_v2.py       #   V2 self-play with entity features
+│   └── trainer.py            #   Legacy trainer
+│
+├── eval/                     # Evaluation
+│   ├── baseline_agents.py    #   Wait/Random/Heuristic/Meta/Search agents
+│   ├── ladder.py             #   Bradley-Terry Elo round-robin
+│   ├── tournament.py         #   Online Elo tournament
+│   └── evaluator.py          #   Evaluation harness
+│
+├── realtime/                 # Real-time play
+│   ├── perception.py         #   YOLOv8 + OCR game state extraction
+│   ├── pipeline.py           #   End-to-end capture→decide→act loop
+│   └── controller.py         #   ADB touch controller
+│
+├── verification/             # Cross-engine verification
+│   ├── conformance.py        #   Stat conformance vs oracle
+│   ├── oracle_data.py        #   Load oracle fixture
+│   └── name_map.py           #   Card name mapping crsim ↔ oracle
+│
+├── tests/                    # Test suite (226+ tests)
+│   ├── test_interactions.py  #   24+ golden interaction scenarios
+│   ├── test_encoding.py      #   State encoding invariants
+│   ├── test_action_space.py  #   Action codec roundtrip
+│   ├── test_cross_engine_*.py#   Oracle conformance tests
+│   ├── test_transformer_net.py#  CRStarNet forward pass tests
+│   ├── test_vectorized_selfplay.py
+│   ├── test_league.py
+│   ├── test_imitation.py
+│   └── ...
+│
+├── scripts/                  # CLI entrypoints
+│   ├── train_v2.py           #   Main training script
+│   ├── evaluate.py           #   Run evaluation
+│   ├── ladder.py             #   Run Elo ladder
+│   ├── selfplay_bench.py     #   Benchmark self-play throughput
+│   ├── warmstart.py          #   Value warm-start from matchup data
+│   └── play.py               #   Real-time play script
+│
+├── cr_engine/                # Rust native engine (optional)
+└── scroll_bridge/            # External integration bridge
+```
