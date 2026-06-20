@@ -126,5 +126,32 @@ WAIT_ACTION: int = ACTION_SPACE_SIZE - 1
 # ---------------------------------------------------------------------------
 # State representation
 # ---------------------------------------------------------------------------
-SPATIAL_CHANNELS: int = 2 * NUM_CARD_TYPES + 4  # 254 for 125 cards
+# Spatial planes are *semantic*, not one-per-card. Per-card identity is carried
+# by the entity-transformer's type embedding, so the spatial map only needs the
+# aggregate information a conv net benefits from (threat/HP/type density per
+# side + map). This replaces the old 254-plane (one density plane per card per
+# side) encoding, which was ~14x larger, mostly empty, and slow to build.
+#
+# Plane indices (per current-player perspective; board is flipped so the
+# current player is always at the bottom):
+CH_FRIENDLY_HP: int = 0       # HP-weighted unit density (friendly)
+CH_ENEMY_HP: int = 1          # HP-weighted unit density (enemy)
+CH_FRIENDLY_DPS: int = 2      # DPS-weighted density / threat (friendly)
+CH_ENEMY_DPS: int = 3         # DPS-weighted density / threat (enemy)
+CH_FRIENDLY_GROUND: int = 4   # ground-unit count density (friendly)
+CH_ENEMY_GROUND: int = 5      # ground-unit count density (enemy)
+CH_FRIENDLY_AIR: int = 6      # air-unit count density (friendly)
+CH_ENEMY_AIR: int = 7         # air-unit count density (enemy)
+CH_FRIENDLY_BUILDING: int = 8  # non-tower building HP (friendly)
+CH_ENEMY_BUILDING: int = 9     # non-tower building HP (enemy)
+CH_FRIENDLY_TOWER_HP: int = 10  # tower HP at tower cell (friendly)
+CH_ENEMY_TOWER_HP: int = 11     # tower HP at tower cell (enemy)
+CH_PLACEMENT_MASK: int = 12     # valid placement cells for current player
+CH_STATIC_MAP: int = 13         # river=1.0, bridge=0.5
+CH_FRIENDLY_WINCON: int = 14    # building-targeting unit density (friendly)
+CH_ENEMY_WINCON: int = 15       # building-targeting unit density (enemy)
+CH_FRIENDLY_READY: int = 16     # attack-ready unit density (friendly)
+CH_ENEMY_READY: int = 17        # attack-ready unit density (enemy)
+
+SPATIAL_CHANNELS: int = 18
 SCALAR_FEATURES: int = 2 + 5 * NUM_CARD_TYPES + 14  # 641 for 125 cards

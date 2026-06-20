@@ -23,6 +23,8 @@ import numpy as np
 from crsim.constants import (
     ARENA_H,
     ARENA_W,
+    CH_ENEMY_HP,
+    CH_FRIENDLY_HP,
     KING_TOWER_HP,
     MAX_ELIXIR,
     NUM_CARD_TYPES,
@@ -155,21 +157,19 @@ class ScrollBattleEnv:
         # Encode entities into spatial channels
         for ent in self.state.entities:
             owner = ent["owner"]
-            etype = ent["entity_type"]
             x = ent["x"]
             y = ent["y"]
             hp = ent["hp"]
             max_hp = ent["max_hp"]
 
             if 0 <= x < ARENA_W and 0 <= y < ARENA_H:
-                # Channel assignment: 0-19 friendly, 20-39 enemy
+                # Semantic planes: HP-weighted unit density per side. (The
+                # Scroll state lacks per-unit flags, so only the HP planes are
+                # populated here; the entity transformer carries identity.)
                 is_friendly = (owner == player)
-                channel_offset = 0 if is_friendly else 20
-                channel = channel_offset + (etype % 20)
-
-                if channel < SPATIAL_CHANNELS - 4:
-                    hp_frac = hp / max(max_hp, 1)
-                    spatial[channel, y, x] = max(spatial[channel, y, x], hp_frac)
+                channel = CH_FRIENDLY_HP if is_friendly else CH_ENEMY_HP
+                hp_frac = hp / max(max_hp, 1)
+                spatial[channel, y, x] = max(spatial[channel, y, x], hp_frac)
 
         # Tower HP channels (40-41)
         ps = self.state.player_0 if player == 0 else self.state.player_1

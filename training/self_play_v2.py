@@ -88,6 +88,11 @@ class SelfPlayWorkerV2:
         self.worker_id = worker_id
         self.rng = np.random.default_rng(seed=worker_id)
 
+        # Keep the MCTS rollout horizon aligned with how often the agent
+        # actually re-decides, so each simulation looks a full decision window
+        # ahead rather than a single 50ms tick.
+        self.config.gumbel_config.rollout_ticks = self.config.decision_interval_ticks
+
         self.searcher = GumbelMuZeroSearch(
             model=self.model,
             config=self.config.gumbel_config,
