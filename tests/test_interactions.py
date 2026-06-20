@@ -584,6 +584,35 @@ def test_evolved_knight_gets_one_shot_damage_shield():
     assert (hp0 - knight.hp) == pytest.approx(140.0)  # subsequent hits are full
 
 
+def test_evo_shield_not_consumed_by_poison_tick():
+    # The Knight one-shot evo shield must survive incidental DoT (poison) and
+    # only be spent on a real attack.
+    g = fresh_game()
+    g._spawn_card(0, CARD_DEFS[CardType.KNIGHT], 9.0, 8.0, evolved=True)
+    knight = living(g, 0, CardType.KNIGHT)[0]
+    assert knight.evo_shield
+
+    knight.take_damage(0.5, is_dot=True)  # a poison tick
+    assert knight.evo_shield  # still up
+
+    hp0 = knight.hp
+    knight.take_damage(100.0)  # a real hit
+    assert (hp0 - knight.hp) == pytest.approx(40.0)  # 60% reduced
+    assert not knight.evo_shield  # now consumed
+
+
+def test_spell_cards_not_selected_as_evo_slots():
+    # Spell evolutions deploy identically to their base here, so they must not
+    # be auto-selected as evo slots (which would silently burn evo charges).
+    from crsim.evolutions import EVOLUTION_DEFS
+
+    assert CardType.ZAP in EVOLUTION_DEFS  # ZAP has an evolution in the data
+    deck = [CardType.ZAP, CardType.KNIGHT, CardType.ARCHERS]
+    slots = CRGame._default_evo_slots(deck)
+    assert CardType.ZAP not in slots  # spell skipped
+    assert CardType.KNIGHT in slots  # troop evolution still picked
+
+
 def test_evolved_barbarians_have_boosted_hp():
     g = fresh_game()
     g._spawn_card(0, CARD_DEFS[CardType.BARBARIANS], 9.0, 8.0, evolved=False)

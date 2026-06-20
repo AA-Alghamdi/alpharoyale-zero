@@ -185,13 +185,18 @@ class Entity:
         self.slow_timer = max(self.slow_timer, duration)
         self.slow_factor = factor
 
-    def take_damage(self, damage: float) -> float:
-        """Apply damage, considering shield. Returns actual HP damage dealt."""
+    def take_damage(self, damage: float, is_dot: bool = False) -> float:
+        """Apply damage, considering shield. Returns actual HP damage dealt.
+
+        ``is_dot`` marks incidental damage-over-time (poison ticks, damage
+        zones). Such ticks do not consume the Knight-evolution one-shot shield,
+        which is meant to absorb a real attack rather than a fractional tick.
+        """
         # Ability damage reduction (Monk's Pensive Protection) scales the hit.
         if self.damage_reduction_timer > 0:
             damage *= self.damage_reduction_mult
-        # Knight-evolution one-shot shield: reduces the first hit, then drops.
-        if self.evo_shield:
+        # Knight-evolution one-shot shield: reduces the first attack, then drops.
+        if self.evo_shield and not is_dot:
             damage *= self.evo_shield_mult
             self.evo_shield = False
         if self.has_shield and self.shield_hp > 0:

@@ -344,6 +344,12 @@ class CRGame:
         slots: list[CardType] = []
         for ct in deck:
             if ct in EVOLUTION_DEFS and ct not in slots:
+                # Only troop/building evolutions have simulated evolved effects.
+                # Spell evolutions (Zap, Goblin Barrel, ...) deploy identically
+                # to their base card here, so selecting them would silently burn
+                # evolution charges for no benefit. Skip them.
+                if CARD_DEFS[ct].kind == EntityKind.SPELL:
+                    continue
                 slots.append(ct)
                 if len(slots) == 2:
                     break
@@ -660,7 +666,7 @@ class CRGame:
                         # Light damage
                         if damage > 0:
                             dmg = self._crown_adjusted(e, damage, card_def)
-                            e.take_damage(dmg * TICK_DURATION / 2.5)
+                            e.take_damage(dmg * TICK_DURATION / 2.5, is_dot=True)
             return
 
         # --- Heal Spirit / Heal: heal OWN troops ---
@@ -1287,7 +1293,7 @@ class CRGame:
             # Poison DoT
             if e.poison_timer > 0:
                 poison_dmg = e.poison_dps * TICK_DURATION
-                e.take_damage(poison_dmg)
+                e.take_damage(poison_dmg, is_dot=True)
                 e.poison_timer -= TICK_DURATION
                 if e.poison_timer < 0:
                     e.poison_timer = 0.0
