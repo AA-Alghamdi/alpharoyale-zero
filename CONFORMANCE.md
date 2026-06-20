@@ -44,8 +44,9 @@ first. None of them requires a GPU.
 `tools/conformance/wiki_anchors.py` holds hand-verified Level-11 values;
 `tests/test_conformance_anchors.py` enforces them (±1%).
 
-**Result: 13/16 anchor stats exact; 3 mismatches, all explained by data
-staleness (not engine bugs).**
+**Result: 16/16 anchor stats exact.** (13 were exact from the data; 2 cards —
+Wizard, Mini P.E.K.K.A — were stale and are now corrected by a curated
+balance-patch layer; see §4.)
 
 | Card | Stat | Ours | Wiki L11 | Verdict |
 |---|---|---:|---:|---|
@@ -55,12 +56,13 @@ staleness (not engine bugs).**
 | Mega Knight | hp | 3993 | 3993 | exact |
 | Valkyrie / Prince | hp | 1908 / 1920 | 1908 / 1920 | exact |
 | Fireball / Rocket / Zap / Arrows | dmg | 689 / 1485 / 192 / 322 | same | exact |
-| **Wizard** | hp | **721** | **755** | stale: missing Aug-2024 +4.8% HP buff |
-| **Mini P.E.K.K.A** | hp / dmg | **1361 / 721** | **1433 / 755** | stale: missing ~+5% buff |
+| Wizard | hp | 755 | 755 | exact (was 721 — patched, §4) |
+| Mini P.E.K.K.A | hp / dmg | 1433 / 755 | 1433 / 755 | exact (was 1361 / 721 — patched, §4) |
 
-The core, long-stable cards are **exact**. The only failures are cards that got
-buffed in 2024-25 after our data dump was cut — a *data-freshness* gap, fixable
-by refreshing the export (see §4).
+The core, long-stable cards were **exact** straight from the data. Wizard and
+Mini P.E.K.K.A were buffed in 2024-25 *after* the data was cut and — crucially —
+the upstream export is **still** stale on them (see §4), so they are corrected
+in a small curated layer rather than by waiting for a data refresh.
 
 ### 2b. Vs. an independent engine — samdickson22/clash-simulator
 
@@ -81,7 +83,8 @@ Annotated outliers (|Δ| > 5%):
 | Arrows dmg +160% | representation: ours = total damage, ref = per-wave |
 | Rascals / Cannon Cart / Goblin Drill / Goblin Hut HP −30…−51% | representation: which sub-unit / shield the card's "HP" refers to |
 | Rune Giant dmg +26%, Boss Bandit −10% | newest cards; data differs between dumps |
-| Wizard / Mini P.E.K.K.A / Lumberjack / Electro Wiz / Giant Skeleton / Hunter / Monk −5…−8% | **our data staleness** — candidate balance-patch gaps |
+| ~~Wizard / Mini P.E.K.K.A~~ | **fixed** — corrected via `POST_SNAPSHOT_L11_PATCHES` (§4) |
+| Lumberjack / Electro Wiz / Giant Skeleton / Hunter / Monk −5…−8% | **candidate** staleness — not yet independently verified, so not patched |
 
 So cross-engine disagreement splits into three buckets: **representation
 differences** (not bugs), **newest-card data drift**, and **our staleness** (the
@@ -91,7 +94,7 @@ actionable list).
 
 `tests/test_interactions.py` + the rest of the suite encode known CR outcomes
 (e.g. *Fireball + Zap kills Musketeer*, *Hog reaches tower in N s*, *Inferno
-ramps to max dps*, evolution/ability behaviours). **148 tests pass.** This is
+ramps to max dps*, evolution/ability behaviours). **164 tests pass.** This is
 what originally caught the catastrophic bugs the project was about to train on
 (damage spells dealing **zero** damage; troops never crossing the river; King
 tower firing early).
@@ -134,15 +137,23 @@ python -m tools.conformance.compare_stats            # or --out report.md
 
 ## 4. Prioritised follow-up to push accuracy higher
 
-1. **Refresh the game-data export.** The staleness gaps (Wizard, Mini P.E.K.K.A,
-   and the −5…−8% cross-engine cluster) all trace to one root cause: the bundled
-   dump predates recent balance patches. A fresh canonical export from a current
-   client fixes the whole class at once — far better than hand-patching cards.
-2. **Normalise representation differences** in the harness (Arrows per-wave vs
+1. **The export itself is stale — a curated patch layer is required, not a
+   re-pull.** I verified this directly: the bundled cr-api-data dump is at the
+   latest commit (`d5461b0`, fetched 2026-06-20) yet still stores Wizard and
+   Mini P.E.K.K.A at their *pre-buff* base HP (Wizard base 340 = Musketeer's old
+   value; Mini P.E.K.K.A 642 vs the buffed 677). So "refresh the export" does
+   **not** fix them. They are corrected in
+   `crsim.gamedata.POST_SNAPSHOT_L11_PATCHES`, with each value cross-checked
+   against two independent stat sites (deckmelon + fandom). **Next:** verify the
+   remaining −5…−8% cross-engine candidates (Lumberjack, Electro Wizard, Giant
+   Skeleton, Hunter, Monk) the same way and patch the confirmed ones.
+2. **Decode a fresh APK `csv_logic`** as the durable fix — a current client
+   extraction supersedes both the stale cr-api-data and the hand patch layer.
+3. **Normalise representation differences** in the harness (Arrows per-wave vs
    total; multi-unit cards) so genuine bugs aren't masked by noise.
-3. **Stand up the real-engine oracle** (Scroll/`libg.so`) on ARM hardware for
+4. **Stand up the real-engine oracle** (Scroll/`libg.so`) on ARM hardware for
    definitive, frame-level verification of the mechanics video can't certify.
-4. **Expand golden tests** for the newest cards (champions/evolutions) where
+5. **Expand golden tests** for the newest cards (champions/evolutions) where
    cross-engine data drift is highest.
 
 ---

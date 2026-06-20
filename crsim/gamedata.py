@@ -400,3 +400,49 @@ def apply_authentic_stats(card_defs: dict, *, data_dir: Path | None = None) -> t
 
     logger.info("Applied authentic stats to %d/%d cards", len(report), len(card_defs))
     return new_defs, report
+
+
+# Tournament-standard (King Level 11) corrections for cards whose bundled
+# cr-api-data base values predate a live balance change. Each value is verified
+# against two independent stat sources (deckmelon + fandom) and cross-checked
+# against the samdickson22/clash-simulator reference engine.
+#
+# Importantly, the bundled export (cr-api-data commit d5461b0, fetched
+# 2026-06-20) still carries the *pre-buff* base for these cards, so simply
+# re-pulling cr-api-data does NOT fix them — the staleness is upstream. This
+# curated layer is the corrective until a fresh APK ``csv_logic`` decode lands.
+POST_SNAPSHOT_L11_PATCHES: dict[str, dict[str, float]] = {
+    # Wizard +4.8% HP (Aug-2024 buff); area damage 281 is already correct.
+    "WIZARD": {"hp": 755.0},
+    # Mini P.E.K.K.A ~+5% HP/damage buff.
+    "MINI_PEKKA": {"hp": 1433.0, "damage_per_hit": 755.0},
+}
+
+
+def apply_balance_patches(card_defs: dict) -> tuple[dict, dict]:
+    """Apply curated post-snapshot Level-11 corrections to ``card_defs``.
+
+    Runs *after* :func:`apply_authentic_stats` so it overrides the (stale)
+    overlaid values. Returns ``(new_card_defs, report)`` where ``report`` maps
+    each patched card to ``{field: (old, new)}``.
+    """
+    from crsim.cards import CardType
+
+    new_defs = dict(card_defs)
+    report: dict = {}
+    for name, fields in POST_SNAPSHOT_L11_PATCHES.items():
+        try:
+            card_type = CardType[name]
+        except KeyError:  # pragma: no cover - card not in this build
+            continue
+        base = new_defs.get(card_type)
+        if base is None:
+            continue
+        valid = {k: v for k, v in fields.items() if hasattr(base, k)}
+        changed = {k: (getattr(base, k), v) for k, v in valid.items() if getattr(base, k) != v}
+        if changed:
+            new_defs[card_type] = dataclasses.replace(base, **valid)
+            report[card_type] = changed
+    if report:
+        logger.info("Applied %d post-snapshot balance patches", len(report))
+    return new_defs, report

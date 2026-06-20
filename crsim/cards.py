@@ -2425,9 +2425,13 @@ NUM_CARD_TYPES: int = 125
 def _apply_authentic_overlay() -> None:
     global CARD_DEFS, AUTHENTIC_STAT_REPORT
     try:
-        from crsim.gamedata import apply_authentic_stats
+        from crsim.gamedata import apply_authentic_stats, apply_balance_patches
 
         CARD_DEFS, AUTHENTIC_STAT_REPORT = apply_authentic_stats(CARD_DEFS)
+        # Curated corrections for values the bundled export carries pre-buff.
+        CARD_DEFS, patch_report = apply_balance_patches(CARD_DEFS)
+        for ct, ch in patch_report.items():
+            AUTHENTIC_STAT_REPORT.setdefault(ct, {}).update(ch)
     except Exception:  # pragma: no cover - never let data issues break import
         import logging
 

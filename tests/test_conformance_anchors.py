@@ -10,6 +10,12 @@ authentic game-data dump predates a 2024-25 balance change, so our value is the
 older one. They are marked ``xfail(strict=True)`` — if a future data refresh
 fixes them, the test will XPASS and fail the suite, prompting removal from the
 allowlist. This keeps the known-gap list honest and self-cleaning.
+
+The list is currently empty: the two previously-stale cards (Wizard, Mini
+P.E.K.K.A) are corrected by ``crsim.gamedata.POST_SNAPSHOT_L11_PATCHES`` (the
+bundled cr-api-data export is itself stale on them, so re-pulling it does not
+help — see CONFORMANCE.md). The mechanism is retained for the next time the
+export lags a balance change.
 """
 
 from __future__ import annotations
@@ -19,11 +25,13 @@ import pytest
 from crsim.cards import CARD_DEFS, CardType
 from tools.conformance.wiki_anchors import WIKI_ANCHORS
 
-# Cards whose bundled data predates a verified recent balance change.
-#   WIZARD:     +4.8% HP (Aug 2024): 721 -> 755
-#   MINI_PEKKA: ~+5% HP/damage buffs not in the dump (1361/721 vs 1433/755)
+# Cards whose bundled data predates a verified recent balance change and whose
+# correct value is NOT yet available from the data export. Wizard and Mini
+# P.E.K.K.A used to live here; they are now corrected via
+# crsim.gamedata.POST_SNAPSHOT_L11_PATCHES, so the set is empty. Keep the
+# mechanism for the next export-lag.
 # See CONFORMANCE.md for the full prioritised staleness list.
-KNOWN_STALE = {"WIZARD", "MINI_PEKKA"}
+KNOWN_STALE: set[str] = set()
 
 TOLERANCE = 0.01  # ±1% (level-scaling rounding)
 
