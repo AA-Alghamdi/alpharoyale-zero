@@ -46,4 +46,10 @@ WIKI_ANCHORS: dict[str, Anchor] = {
     "WIZARD": Anchor(hp=755, source="fandom Wizard L11 (post Aug-2024 +4.8% HP)"),
     # Mini P.E.K.K.A current L11 per fandom level table.
     "MINI_PEKKA": Anchor(hp=1433, damage=755, source="fandom Mini P.E.K.K.A L11"),
+    # Cards whose HP was buffed after the bundled export was cut. Each HP value
+    # is corroborated by 3 independent sources; damage omitted where the source
+    # figure is a representation difference (multi-pellet / source spread).
+    "GIANT_SKELETON": Anchor(hp=3617, source="fandom+Liquipedia+deckmelon Giant Skeleton L11"),
+    "HUNTER": Anchor(hp=885, source="fandom+Liquipedia+deckmelon Hunter L11"),
+    "MONK": Anchor(hp=2150, source="fandom+deckmelon Monk L11 (champion base)"),
 }

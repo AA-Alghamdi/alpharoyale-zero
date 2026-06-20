@@ -416,6 +416,17 @@ POST_SNAPSHOT_L11_PATCHES: dict[str, dict[str, float]] = {
     "WIZARD": {"hp": 755.0},
     # Mini P.E.K.K.A ~+5% HP/damage buff.
     "MINI_PEKKA": {"hp": 1433.0, "damage_per_hit": 755.0},
+    # Giant Skeleton +5.6% HP (base 2140 -> 2260). L11 3617 confirmed by
+    # fandom + Liquipedia + deckmelon. Damage (266-276 across sources, ours
+    # 267) is within source spread, so left unpatched.
+    "GIANT_SKELETON": {"hp": 3617.0},
+    # Hunter +5.5% HP (base 524 -> 553). L11 885 confirmed by fandom +
+    # Liquipedia + deckmelon. Damage is multi-pellet (84x10) -> representation
+    # difference, left unpatched.
+    "HUNTER": {"hp": 885.0},
+    # Monk +7.5% HP (champion base 2000 -> 2150). L11 2150 confirmed by
+    # fandom + deckmelon (Liquipedia lists 2214; we take the 2-source majority).
+    "MONK": {"hp": 2150.0},
 }
 
 
