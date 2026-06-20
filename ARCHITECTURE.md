@@ -12,31 +12,39 @@ data, no hand-crafted heuristics.
 |                    SELF-PLAY LOOP                            |
 |                                                              |
 |  +------------+     +---------+     +------------------+     |
-|  | Simulator  |<--->|  MCTS   |<--->| Neural Network   |     |
-|  | (CRSim)    |     | (800    |     | (ResNet-20,      |     |
-|  |            |     |  sims)  |     |  256 filters)    |     |
+|  | Simulator  |<--->| Gumbel  |<--->| CRStarNet        |     |
+|  | (CRSim)    |     | MuZero  |     | (entity-xformer  |     |
+|  |            |     | search  |     |  + spatial ResNet)|    |
 |  +------------+     +---------+     +------------------+     |
 |        |                                    ^                |
 |        v                                    |                |
 |  +------------------+    +------------------+                |
-|  | Replay Buffer    |--->| Distributed      |                |
-|  | (500K games,     |    | Trainer (DDP,    |                |
-|  |  ring buffer)    |    |  2x A100)        |                |
+|  | Replay Buffer    |--->| Trainer          |                |
+|  | (~500K positions,|    | (AdamW, AMP;     |                |
+|  |  float16 ring)   |    |  DDP at scale)   |                |
 |  +------------------+    +------------------+                |
 +-------------------------------------------------------------+
 ```
+
+> **Doc vs. shipped defaults.** This document describes the GPU-scale
+> *production target* (e.g. 800-sim MCTS, a 256-filter / 20-block ResNet,
+> 2×A100 DDP). The shipped code defaults are smaller and faster — Gumbel-MuZero
+> search (16 sims, sequential halving) over `CRStarNet` (128 filters, 10
+> blocks) — and scale up via config when GPU hardware is available. Concrete
+> interface numbers below (tick rate, action-space size, channel counts) match
+> the code.
 
 ### Why AlphaZero for Clash Royale?
 
 | Property           | Go / Chess        | Clash Royale               |
 |--------------------|-------------------|----------------------------|
 | Turn structure     | Alternating       | Simultaneous / real-time   |
-| Action space       | ~361 (Go)         | ~2305 (card × position)    |
+| Action space       | ~361 (Go)         | 2306 (card × position)     |
 | State observability| Perfect           | Partial (opponent hand)    |
 | Time dimension     | None              | Continuous (elixir, timer) |
-| Branching factor   | ~250 (Go)         | ~2305                      |
+| Branching factor   | ~250 (Go)         | up to 2306                 |
 
-To handle real-time + simultaneous play, we **discretize time into 0.5 s ticks** and
+To handle real-time + simultaneous play, we **discretize time into 50 ms ticks** (20 Hz) and
 treat each tick as a simultaneous-move game. MCTS searches over the joint action
 space with **opponent modeling** (the NN predicts both players' policies).
 
@@ -162,38 +170,50 @@ class VectorizedCRSim:
 
 ## 3. State Representation
 
-### 3.1 Spatial Features (C × 18 × 32)
+### 3.1 Spatial Features (18 × H=32 × W=18)
 
-| Channels   | Description                                |
-|------------|--------------------------------------------|
-| 0–19       | Friendly unit density per card type         |
-| 20–39      | Enemy unit density per card type            |
-| 40         | Friendly tower HP (normalized to [0,1])     |
-| 41         | Enemy tower HP (normalized)                 |
-| 42         | Valid placement mask for current player     |
-| 43         | Static map features (river, bridges)        |
+Rather than one plane per card type (which scales badly with a 125-card pool),
+the encoder uses **18 fixed semantic planes**. Card identity is carried by the
+entity tokens (§3.3) and the scalar one-hots (§3.2), not by the spatial grid.
 
-**Total: 44 spatial channels**, each 18×32.
+| Channel | Constant                 | Description                                   |
+|---------|--------------------------|-----------------------------------------------|
+| 0 / 1   | `CH_FRIENDLY/ENEMY_HP`   | HP-weighted unit density                      |
+| 2 / 3   | `CH_FRIENDLY/ENEMY_DPS`  | DPS-weighted threat density                   |
+| 4 / 5   | `CH_FRIENDLY/ENEMY_GROUND` | Ground-unit density                         |
+| 6 / 7   | `CH_FRIENDLY/ENEMY_AIR`  | Air-unit density                              |
+| 8 / 9   | `CH_FRIENDLY/ENEMY_BUILDING` | Non-tower building HP                     |
+| 10 / 11 | `CH_FRIENDLY/ENEMY_TOWER_HP` | Tower HP at the tower cell                |
+| 12      | `CH_PLACEMENT_MASK`      | Valid placement cells for the current player  |
+| 13      | `CH_STATIC_MAP`          | River = 1.0, bridge = 0.5                      |
+| 14 / 15 | `CH_FRIENDLY/ENEMY_WINCON` | Building-targeting (win-condition) density  |
+| 16 / 17 | `CH_FRIENDLY/ENEMY_READY` | Attack-ready unit density                    |
 
-Unit density: for each cell, `hp_remaining / max_hp` of all units of that type in or
-near the cell (Gaussian splat with σ=0.5 tiles).
+**Total: 18 spatial planes** (`SPATIAL_CHANNELS`), each `ARENA_H × ARENA_W` =
+32 × 18. Densities are Gaussian-splatted (σ = 0.5 tiles).
 
-### 3.2 Scalar Features (vector of length S)
+### 3.2 Scalar Features (length `SCALAR_FEATURES` = 641)
 
-| Feature                        | Size |
-|--------------------------------|------|
-| Current elixir (normalized)    | 1    |
-| Elixir regen rate (phase)      | 1    |
-| Cards in hand (one-hot × 4)   | 80   |
-| Next card (one-hot)            | 20   |
-| Time remaining (normalized)    | 1    |
-| Tower status (alive/dead × 6) | 6    |
-| Tower HP (normalized × 6)     | 6    |
-| Score (tower diff, normalized) | 1    |
+`SCALAR_FEATURES = 2 + 5 × NUM_CARD_TYPES + 14`, which is **641** for the
+125-card pool. The per-card blocks are one-hot/intensity vectors over the full
+card set (hand slots, next card, etc.), so this grows with the card pool:
 
-**Total: 116 scalar features.**
+| Feature group                          | Size                 |
+|----------------------------------------|----------------------|
+| Globals (elixir, phase)                | 2                    |
+| Per-card blocks (× 5 over card pool)   | 5 × 125 = 625        |
+| Time / tower status / tower HP / score | 14                   |
 
-### 3.3 Encoding Details
+### 3.3 Entity Tokens (64 × 40)
+
+The primary network also consumes a variable-length **entity list**: up to
+`MAX_ENTITY_SLOTS = 64` units, each encoded as a `ENTITY_FEATURE_DIM = 40`-d
+token (position, velocity, HP, status timers, champion readiness, evolved
+state, tower flag, …) and processed by a self-attention transformer. This is
+what lets the network reason about individual units regardless of card pool
+size. See `model/features.py::extract_entity_features`.
+
+### 3.4 Encoding Details
 
 - All spatial and scalar values are normalized to approximately [0, 1] or [-1, 1]
 - The state is always encoded from the **perspective of the current player** — the
@@ -207,13 +227,13 @@ near the cell (Gaussian splat with σ=0.5 tiles).
 ### 4.1 Discrete Formulation
 
 ```
-Action = (card_index, x, y)  or  WAIT
+Action = (card_index, x, y)  or  ABILITY  or  WAIT
 
 card_index ∈ {0, 1, 2, 3}     (4 hand slots)
 x          ∈ {0, ..., 17}     (18 columns)
 y          ∈ {0, ..., 31}     (32 rows)
 
-Total actions = 4 × 18 × 32 + 1 = 2305
+Total actions = 4 × 18 × 32 + ABILITY + WAIT = 2306
 ```
 
 ### 4.2 Action Masking
@@ -223,7 +243,7 @@ Invalid actions are masked before softmax:
 - Position outside valid placement zone → mask that (card, x, y)
 - Position in river/on tower → mask
 
-The mask is a binary vector of length 2305, applied as:
+The mask is a binary vector of length 2306, applied as:
 ```python
 logits[~mask] = -1e9  # before softmax
 ```
@@ -461,7 +481,7 @@ def train_step(model, optimizer, batch):
 
 Start simple, add complexity:
 1. **Hours 0–4**: Fixed 8-card "starter" deck vs itself
-2. **Hours 4–12**: Random deck from pool of 20 cards
+2. **Hours 4–12**: Random deck from the 125-card pool
 3. **Hours 12–24**: Deck building included as part of the strategy
 
 ---
@@ -498,7 +518,7 @@ Every 30 minutes:
 
 For real-time play against humans:
 - Single GPU inference with MCTS (200 sims) runs in < 250ms per decision
-- Decision made every 0.5s tick = well within real-time
+- Decision made every few ticks (decision interval) = well within real-time
 - Can interface with the actual game via screen capture + touch simulation
   (requires separate integration layer)
 
@@ -508,8 +528,8 @@ For real-time play against humans:
 
 | Decision                        | Rationale                                            |
 |---------------------------------|------------------------------------------------------|
-| 0.5s tick rate                  | Balances fidelity vs search depth                    |
-| 20-card roster                  | Enough for rich strategies; expandable later          |
+| 50 ms tick rate (20 Hz)         | Balances fidelity vs search depth                    |
+| 125-card roster                 | Authentic Supercell card set (+10 champions, 35 evos) |
 | 18×32 grid                     | Matches actual arena proportions                      |
 | 256 filters, 20 ResBlocks      | Sweet spot for A100 throughput vs capacity            |
 | 800 MCTS simulations           | AlphaZero default; 200–400 used in early phases      |

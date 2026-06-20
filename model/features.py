@@ -1,7 +1,11 @@
 """State encoding: convert a CRGame into tensors for the neural network.
 
-Spatial tensor : (C, H, W) = (44, 32, 18)   — channel-first for PyTorch Conv2d
-Scalar tensor  : (116,)
+Spatial tensor : (C, H, W) = (SPATIAL_CHANNELS, ARENA_H, ARENA_W) = (18, 32, 18)
+                 channel-first for PyTorch Conv2d (semantic planes, not 1 plane
+                 per card).
+Scalar tensor  : (SCALAR_FEATURES,) = (641,)  — globals + per-card one-hots.
+Entity tensor  : (MAX_ENTITY_SLOTS, ENTITY_FEATURE_DIM) = (64, 40) for the
+                 entity-transformer branch (see ``extract_entity_features``).
 """
 
 from __future__ import annotations

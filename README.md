@@ -7,26 +7,34 @@ Learn superhuman Clash Royale play entirely through self-play — no human data,
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    SELF-PLAY LOOP                        │
-│                                                          │
-│  Simulator ←→ MCTS (800 sims) ←→ ResNet-20 (256 ch)    │
-│       │                                 ↑               │
-│       ↓                                 │               │
-│  Replay Buffer (500K) ──→ Trainer (DDP, 2×A100)        │
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                        SELF-PLAY LOOP                            │
+│                                                                  │
+│  Simulator ←→ Gumbel-MuZero search ←→ CRStarNet                  │
+│     (crsim)        (mcts)            (entity-transformer + ResNet)│
+│       │                                       ↑                  │
+│       ↓                                       │                  │
+│  Replay Buffer (~500K, float16) ──→ Trainer (AdamW, AMP)         │
+└────────────────────────────────────────────────────────────────┘
 ```
 
-| Component         | Details                                              |
-|-------------------|------------------------------------------------------|
-| **Simulator**     | 18×32 grid, 0.5s ticks, 20 cards, flow-field pathfinding |
-| **State**         | 44 spatial channels + 116 scalar features            |
-| **Action space**  | 2305 (4 cards × 18×32 positions + wait)              |
-| **Network**       | 20 SE-ResBlocks, 256 filters (~30M params)           |
-| **MCTS**          | 800 simulations, c_puct=2.5, Dirichlet noise         |
-| **Training**      | AdamW, cosine LR, FP16 AMP, 2048 batch               |
+| Component         | Details                                                                 |
+|-------------------|-------------------------------------------------------------------------|
+| **Simulator**     | 18×32 grid, 50 ms ticks (20 Hz), 125 cards / 10 champions / 35 evolutions |
+| **State**         | 18 semantic spatial planes + 641 scalar features + 64×40 entity tokens  |
+| **Action space**  | 2306 (4 hand slots × 18×32 placements + ABILITY + WAIT)                 |
+| **Network**       | CRStarNet: entity-transformer (40-d tokens) + spatial ResNet + heads    |
+| **MCTS**          | Gumbel-MuZero (sequential halving, default 16 sims, playout-cap)        |
+| **Training**      | AdamW, cosine LR, FP16 AMP, league + curriculum + imitation scaffolding |
+
+A legacy plane-per-card ResNet (`model/network.py::CRZeroNet`) is retained for
+comparison; the entity-transformer `CRStarNet` is the primary network.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design document.
+
+> **Status:** The verified simulator + encoding + search + training scaffolding
+> live on `main` behind CI (ruff + 148 tests). Champion-level strength still
+> requires GPU-scale self-play training on hardware beyond this repo's CI box.
 
 ## Quick Start
 
@@ -44,11 +52,16 @@ pip install -e ".[dev]"
 ### Run Tests
 
 ```bash
-python -m pytest tests/ -v
-# or run individually:
-python tests/test_sim.py
-python tests/test_model.py
-python tests/test_mcts.py
+python -m pytest tests/ -q
+# or a single module / the golden interaction harness:
+python -m pytest tests/test_sim.py -q
+python -m pytest tests/test_interactions.py -q
+```
+
+Linting (matches CI):
+
+```bash
+ruff check .
 ```
 
 ### Train (Single GPU — development)
