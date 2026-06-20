@@ -540,6 +540,19 @@ def test_mighty_miner_bomb_explodes_after_delay():
     assert len(g.pending_bombs) == 0
 
 
+def test_little_prince_summons_guardienne():
+    g = fresh_game()
+    spawn(g, CardType.LITTLE_PRINCE, 0, 9.0, 8.0)
+    g.players[0].elixir = 8.0
+
+    before = len(living(g, 0, CardType.GUARDIENNE))
+    g.apply_action(Action(player=0, ability=True))
+    after = len(living(g, 0, CardType.GUARDIENNE))
+
+    assert after - before == 1  # the Guardienne joins the fight
+    assert g.players[0].elixir == pytest.approx(7.0)  # 8 - 1 ability cost
+
+
 def test_champion_ability_respects_cooldown_and_cost():
     from crsim.constants import ABILITY_ACTION
 

@@ -1595,6 +1595,9 @@ CARD_DEFS: dict[CardType, CardDef] = {
         target_mode=TargetMode.AIR_GROUND,
         has_projectile=True,
         is_champion=True,
+        # "Royal Rescue": summon his Guardienne to fight alongside him.
+        ability_cost=1,
+        ability_cooldown=20.0,
     ),
     CardType.GOBLIN_DEMOLISHER: CardDef(
         card_type=CardType.GOBLIN_DEMOLISHER,

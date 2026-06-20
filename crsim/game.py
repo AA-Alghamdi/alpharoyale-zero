@@ -370,6 +370,22 @@ class CRGame:
             self._ability_monk(champ)
         elif champ.card_type == CardType.MIGHTY_MINER:
             self._ability_mighty_miner(champ)
+        elif champ.card_type == CardType.LITTLE_PRINCE:
+            self._ability_little_prince(champ)
+
+    def _ability_little_prince(self, champ: Entity) -> None:
+        """Royal Rescue: summon the Guardienne to fight alongside the Prince."""
+        if len(self.entities) >= MAX_ENTITIES:
+            return
+        forward = 1.0 if champ.owner == 0 else -1.0
+        guard = entity_from_card(
+            eid=self._alloc_eid(),
+            owner=champ.owner,
+            card_def=CARD_DEFS[CardType.GUARDIENNE],
+            x=champ.x,
+            y=max(0.0, min(float(ARENA_H - 1), champ.y + 1.0 * forward)),
+        )
+        self.entities.append(guard)
 
     def _ability_monk(self, champ: Entity) -> None:
         """Pensive Protection: heavily reduce incoming damage for a short time."""
