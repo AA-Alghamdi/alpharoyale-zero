@@ -133,6 +133,9 @@ class StatBasedCardEmbedding(nn.Module):
     ``module.to(device)`` moves it alongside the parameters.
     """
 
+    # Declared so type-checkers know the registered buffer is a Tensor.
+    stat_matrix: torch.Tensor
+
     def __init__(
         self,
         embed_dim: int = 64,
