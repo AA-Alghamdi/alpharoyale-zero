@@ -15,6 +15,8 @@ from crsim.constants import (
     ARENA_W,
     BRIDGE_LEFT_COLS,
     BRIDGE_RIGHT_COLS,
+    DOUBLE_ELIXIR_START_TICKS,
+    ELIXIR_REGEN_DOUBLE,
     ELIXIR_REGEN_NORMAL,
     ELIXIR_REGEN_OVERTIME,
     ELIXIR_REGEN_SUDDEN,
@@ -202,6 +204,9 @@ class CRGame:
             return ELIXIR_REGEN_OVERTIME
         if self.phase == GamePhase.SUDDEN_DEATH:
             return ELIXIR_REGEN_SUDDEN
+        # Double Elixir during the final minute of regulation (2:00-3:00).
+        if self.tick_count >= DOUBLE_ELIXIR_START_TICKS:
+            return ELIXIR_REGEN_DOUBLE
         return ELIXIR_REGEN_NORMAL
 
     def _regen_elixir(self) -> None:
@@ -896,6 +901,18 @@ class CRGame:
             kt = self.king_towers[p]
             if kt is not None and not kt.alive:
                 self.result = GameResult.P1_WIN if p == 0 else GameResult.P0_WIN
+                self.phase = GamePhase.ENDED
+                return
+
+        # In overtime/sudden death the first tower to fall wins instantly
+        # (no waiting for the timer): whoever has more crowns ends it now.
+        if self.phase in (GamePhase.OVERTIME, GamePhase.SUDDEN_DEATH):
+            p0_crowns = self._count_crowns(0)
+            p1_crowns = self._count_crowns(1)
+            if p0_crowns != p1_crowns:
+                self.result = (
+                    GameResult.P0_WIN if p0_crowns > p1_crowns else GameResult.P1_WIN
+                )
                 self.phase = GamePhase.ENDED
                 return
 
