@@ -317,3 +317,58 @@ def test_princess_tower_kills_lone_skeleton():
     s = spawn(g, CardType.SKELETONS, 1, pt.x, pt.y + 1.5)
     step_n(g, secs(3.0))
     assert not s.alive, "Princess tower must kill a lone Skeleton in range"
+
+
+# ---------------------------------------------------------------------------
+# Minimum range (Mortar dead zone)
+# ---------------------------------------------------------------------------
+
+
+def test_mortar_cannot_hit_point_blank_attacker():
+    g = fresh_game()
+    mortar = spawn(g, CardType.MORTAR, 0, 9.0, 10.0)
+    assert mortar.minimum_range >= 3.0, "Mortar must have a minimum range"
+    # Enemy hugging the Mortar, well inside the dead zone.
+    knight = spawn(g, CardType.KNIGHT, 1, 9.0, 10.3)
+    knight.target_eid = mortar.eid
+    mortar.target_eid = knight.eid
+    step_n(g, secs(3.0))
+    assert knight.alive, "Mortar must not damage a point-blank attacker (inside min range)"
+
+
+def test_mortar_hits_target_beyond_minimum_range():
+    g = fresh_game()
+    mortar = spawn(g, CardType.MORTAR, 0, 9.0, 10.0)
+    # Enemy past the dead zone but within the Mortar's long range.
+    target = spawn(g, CardType.MUSKETEER, 1, 9.0, 10.0 + mortar.minimum_range + 1.5)
+    target.target_eid = mortar.eid
+    mortar.target_eid = target.eid
+    hp0 = target.hp
+    step_n(g, secs(6.0))
+    assert target.hp < hp0, "Mortar must damage a target beyond its minimum range"
+
+
+# ---------------------------------------------------------------------------
+# Death damage (Golem explosion)
+# ---------------------------------------------------------------------------
+
+
+def test_golem_death_damage_hits_nearby_enemy():
+    g = fresh_game()
+    golem = spawn(g, CardType.GOLEM, 0, 9.0, 16.0)
+    victim = spawn(g, CardType.GOBLINS, 1, 9.0, 16.5)  # within death radius (2.0)
+    assert golem.death_damage > 0
+    hp0 = victim.hp
+    golem.hp = 0.0  # kill the Golem so its death explosion fires
+    step_n(g, 2)
+    assert victim.hp < hp0, "Golem death explosion must damage a nearby enemy"
+
+
+def test_death_damage_spares_distant_enemy():
+    g = fresh_game()
+    golem = spawn(g, CardType.GOLEM, 0, 9.0, 16.0)
+    far = spawn(g, CardType.GOBLINS, 1, 9.0, 16.0 + golem.death_damage_radius + 2.0)
+    hp0 = far.hp
+    golem.hp = 0.0
+    step_n(g, 2)
+    assert far.hp == hp0, "Death explosion must not reach an enemy outside its radius"

@@ -204,6 +204,9 @@ class CardDef:
     dot_damage: float = 0.0
     dot_duration: float = 0.0
     spell_travel_time: float = 0.0
+    minimum_range: float = 0.0  # Mortar/X-Bow can't hit point-blank
+    death_damage: float = 0.0  # explosion on death (Golem line, etc.)
+    death_damage_radius: float = 0.0
 
     @property
     def attack_interval(self) -> float:
@@ -332,7 +335,8 @@ CARD_DEFS: dict[CardType, CardDef] = {
         is_flying=True,
         has_hero=True,
         mass=6,
-        tower_damage=195.0,),
+        death_damage=195.0,
+        death_damage_radius=2.0,),
     CardType.WITCH: CardDef(
         card_type=CardType.WITCH,
         kind=EntityKind.TROOP,
@@ -580,7 +584,8 @@ CARD_DEFS: dict[CardType, CardDef] = {
         target_mode=TargetMode.GROUND,
         collision_radius=1.0,
         mass=15,
-        tower_damage=535.0,),
+        death_damage=535.0,
+        death_damage_radius=2.0,),
     CardType.HOG_RIDER: CardDef(
         card_type=CardType.HOG_RIDER,
         kind=EntityKind.TROOP,
@@ -801,7 +806,6 @@ CARD_DEFS: dict[CardType, CardDef] = {
         attack_range=1.2,
         sight_range=5.5,
         target_mode=TargetMode.GROUND,
-        tower_damage=48.0,
         mass=6,),
     CardType.SPARKY: CardDef(
         card_type=CardType.SPARKY,

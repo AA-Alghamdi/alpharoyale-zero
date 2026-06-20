@@ -78,7 +78,31 @@ class GameData:
         for c in cards:
             self.cards_by_norm.setdefault(_norm(c.get("name")), c)
             self.cards_by_norm.setdefault(_norm(c.get("sc_key")), c)
+        # Normalised stat indexes. Multi-unit troops carry a *plural* sc_key
+        # ("Goblins") while the stat row is keyed by the *singular* entity name
+        # ("Goblin"), so we also need a singular-fallback lookup.
+        self.characters_by_norm = {_norm(k): v for k, v in self.characters.items()}
+        self.buildings_by_norm = {_norm(k): v for k, v in self.buildings.items()}
         self.available = bool(cards and self.characters and self.rarities)
+
+    @staticmethod
+    def _resolve(index_by_norm: dict, key: str | None) -> dict | None:
+        if not key:
+            return None
+        n = _norm(key)
+        hit = index_by_norm.get(n)
+        if hit is not None:
+            return hit
+        # Singular fallback: "GOBLINS" -> "GOBLIN", "BATS" -> "BAT".
+        if n.endswith("S"):
+            return index_by_norm.get(n[:-1])
+        return None
+
+    def character_stats(self, key: str | None) -> dict | None:
+        return self._resolve(self.characters_by_norm, key)
+
+    def building_stats(self, key: str | None) -> dict | None:
+        return self._resolve(self.buildings_by_norm, key)
 
     # ---- scaling ----
     def level_multiplier(self, rarity: str) -> float:
@@ -129,13 +153,24 @@ def _proj_damage_and_radius(game: GameData, stats: dict) -> tuple[int, float]:
 # rather than the HP-bearing main entity. Map them to the correct character row.
 _CHAR_ALIAS: dict[str, str] = {
     "RAM_RIDER": "Ram",  # sc_key "RamRider" is the rider; "Ram" carries the HP
+    # Multi-summon troops whose card has no direct stat row: map to the summoned
+    # character so each unit gets authentic per-unit stats (spawn_count stays
+    # hand-coded). Only homogeneous spawns are aliased; heterogeneous composites
+    # (Goblin Gang, Rascals) keep their hand-curated single-entity approximation.
+    "SKELETON_ARMY": "Skeleton",
+    "MINION_HORDE": "Minion",
+    "ROYAL_RECRUITS": "Recruit",
+    "ELIXIR_GOLEM": "ElixirGolem1",
 }
 
 
 def _troop_or_building_fields(game: GameData, card: dict, stats: dict, is_building: bool) -> dict:
-    from crsim.cards import EntityKind, TargetMode
+    from crsim.cards import EntityKind
 
-    rarity = card.get("rarity") or stats.get("rarity") or "Common"
+    # Scale by the *entity's* own rarity, not the card's: a multi-summon card
+    # (Skeleton Army is Epic) spawns base-rarity units (Skeleton is Common), and
+    # the unit's stats follow the unit, not the card tier.
+    rarity = stats.get("rarity") or card.get("rarity") or "Common"
     hp = game.scale(stats.get("hitpoints") or 0, rarity)
     dmg = int(stats.get("damage") or 0)
     splash = (stats.get("area_damage_radius") or 0) / 1000.0
@@ -171,9 +206,22 @@ def _troop_or_building_fields(game: GameData, card: dict, stats: dict, is_buildi
     # standard columns don't encode).
     if splash > 0.0:
         fields["is_splash"] = True
-    if only_bldg:
-        fields["target_mode"] = TargetMode.BUILDINGS
-    else:
+    # Mechanic fields: only emit when present so the overlay never zeroes out a
+    # hand-curated value the standard columns don't encode (e.g. Balloon's
+    # death bomb, modelled outside death_damage).
+    min_range = (stats.get("minimum_range") or 0) / 1000.0
+    if min_range > 0:
+        fields["minimum_range"] = min_range
+    death_dmg = game.scale(stats.get("death_damage") or 0, rarity)
+    if death_dmg > 0:
+        fields["death_damage"] = death_dmg
+        fields["death_damage_radius"] = (stats.get("death_damage_radius") or 0) / 1000.0 or 2.0
+    # Targeting: let the data drive air/ground, but never flip a hand-curated
+    # target mode to BUILDINGS. Compound cards (Ram Rider, Goblin Giant) ride a
+    # building-targeting main entity yet their rider attacks air+ground, so the
+    # single-entity sim deliberately models them as AIR_GROUND. Building-only
+    # win-cons (Giant, Hog, Golem, ...) are already hand-coded as BUILDINGS.
+    if not only_bldg:
         fields["_air"] = attacks_air
     if is_building:
         fields["building_lifetime"] = (stats.get("life_time") or 0) / 1000.0
@@ -208,12 +256,12 @@ def authentic_core_fields(game: GameData, card_type) -> dict | None:
         # Some "spells" (Goblin Barrel) summon troops; pull spawn stats too.
         return _spell_fields(game, card, stats) if stats else None
     if ctype == "building":
-        stats = game.buildings.get(sc)
+        stats = game.building_stats(sc)
         if not stats or not stats.get("hitpoints"):
             return None
         return _troop_or_building_fields(game, card, stats, is_building=True)
     sc = _CHAR_ALIAS.get(card_type.name, sc)
-    stats = game.characters.get(sc)
+    stats = game.character_stats(sc)
     if not stats or not stats.get("hitpoints"):
         return None
     return _troop_or_building_fields(game, card, stats, is_building=False)

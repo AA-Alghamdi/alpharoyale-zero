@@ -729,7 +729,11 @@ class CRGame:
         # Use attack_range + collision radii for actual attack distance
         effective_range = entity.attack_range + entity.collision_radius + target.collision_radius
         dist = entity.distance_to(target)
-        
+
+        # Minimum range (Mortar/X-Bow): can't hit targets inside the dead zone.
+        if entity.minimum_range > 0 and dist < entity.minimum_range:
+            return
+
         if dist > effective_range:
             # Not in range: accumulate load_time if moving toward target
             if entity.load_time > 0 and entity.load_progress < entity.load_time:
@@ -1030,20 +1034,17 @@ class CRGame:
             if e.alive or e.is_tower:
                 continue
 
-            # Death damage (Giant Skeleton bomb, Balloon bomb, Golem explosion, etc.)
-            card_def = CARD_DEFS.get(e.card_type)
-            if card_def and card_def.tower_damage > 0 and card_def.kind == EntityKind.TROOP:
-                # tower_damage field stores death damage for these cards
-                death_dmg = card_def.tower_damage
-                death_radius = card_def.splash_radius if card_def.splash_radius > 0 else 2.5
+            # Death damage (Golem explosion, etc.) — authentic value + radius.
+            if e.death_damage > 0:
+                death_radius = e.death_damage_radius if e.death_damage_radius > 0 else 2.0
                 for other in self.entities:
                     if other.alive and other.owner != e.owner:
                         if other.distance_to(e) <= death_radius:
                             # Death damage is reduced for towers (35%)
                             if other.is_tower:
-                                other.take_damage(death_dmg * 0.35)
+                                other.take_damage(e.death_damage * 0.35)
                             else:
-                                other.take_damage(death_dmg)
+                                other.take_damage(e.death_damage)
 
             if e.death_spawn_count > 0 and e.death_spawn_hp > 0:
                 for i in range(e.death_spawn_count):
