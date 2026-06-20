@@ -738,7 +738,7 @@ class CRGame:
 
     def _find_target(self, entity: Entity) -> int:
         """Find the best target eid for an entity. Returns -1 if none.
-        
+
         Uses sight_range for initial target acquisition (aggro).
         Once a target is acquired, uses attack_range for actual combat.
         Targeting priority: closest enemy within sight_range.
@@ -847,7 +847,7 @@ class CRGame:
 
     def _move_entity(self, entity: Entity) -> None:
         """Move entity toward its target, with charge support.
-        
+
         If no target is in sight_range, the unit moves toward the closest
         enemy tower (princess tower, then king tower). This is the default
         pathing behavior in real CR.
@@ -905,7 +905,7 @@ class CRGame:
 
     def _resolve_collisions(self) -> None:
         """Push overlapping units apart based on mass differential.
-        
+
         In real CR, units with higher mass push lighter units when they collide.
         The push is proportional to the mass ratio. Flying units don't collide
         with ground units.
@@ -959,12 +959,12 @@ class CRGame:
 
     def _process_combat(self, entity: Entity) -> None:
         """Handle attack logic for a single entity.
-        
+
         Mechanics:
         - Load Time: troops pre-load their attack while moving toward target.
           When they enter attack_range, the pre-loaded time is subtracted from
           the attack timer (so first hit comes faster).
-        - Projectile Travel: ranged units fire projectiles that travel at a 
+        - Projectile Travel: ranged units fire projectiles that travel at a
           specific speed. The damage is delayed until impact.
         - Rage: speeds up attack timer countdown by 1.4x.
         """

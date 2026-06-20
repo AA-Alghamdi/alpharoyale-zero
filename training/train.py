@@ -18,14 +18,12 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import time
 
-import numpy as np
 import torch
 
-from training.curriculum import CurriculumManager, CurriculumPhase
+from training.curriculum import CurriculumManager
 from training.domain_randomization import DomainRandomizer
-from training.league import AgentType, League, LeagueConfig
+from training.league import League, LeagueConfig
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +57,6 @@ def main() -> None:
     # Phase 0: Imitation warm-start (if data available)
     if args.imitation_only or (not args.resume and os.path.exists("data/imitation")):
         logger.info("Phase 0: Imitation learning warm-start")
-        from training.imitation import ImitationConfig, train_imitation
         # Model would be instantiated here from config
         # train_imitation(model, ImitationConfig())
 
@@ -72,6 +69,7 @@ def main() -> None:
         exploiter_win_rate_threshold=0.7,
     )
     league = League(league_config)
+    logger.info(f"League: {len(league.agents)} agents, {league.config.n_main_agents} main")
 
     # Initialize curriculum
     curriculum = CurriculumManager()
@@ -84,6 +82,7 @@ def main() -> None:
         adr_min_strength=0.02,
         adr_max_strength=0.25,
     )
+    logger.info(f"Domain randomization strength: {randomizer.strength}")
 
     # Delegate to the real training script
     logger.info("Delegating to scripts/train_v2.py training loop")

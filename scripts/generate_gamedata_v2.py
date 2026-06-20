@@ -304,7 +304,7 @@ def main():
     final_chars = len(existing_chars) + len(new_troop_cards)
     final_sc = len(existing_sc) + len(new_spell_chars)
     final_so = len(existing_so) + len(new_spells)
-    print(f"\n=== Final Totals ===")
+    print("\n=== Final Totals ===")
     print(f"Characters: {final_chars}")
     print(f"Spell characters: {final_sc}")
     print(f"Spell others: {final_so}")

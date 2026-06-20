@@ -11,7 +11,6 @@ Usage:
 
 import json
 import os
-import sys
 
 # Speed mappings (tiles per second)
 SPEED_MAP = {
@@ -216,9 +215,9 @@ def generate_cards_v2(cards):
         lines.append(f"        sight_range={float(sight_range)},")
         lines.append(f"        target_mode=TargetMode.{target_mode},")
         if is_flying:
-            lines.append(f"        is_flying=True,")
+            lines.append("        is_flying=True,")
         if is_splash:
-            lines.append(f"        is_splash=True,")
+            lines.append("        is_splash=True,")
             lines.append(f"        splash_radius={splash_radius},")
         if spawn_count != 1:
             lines.append(f"        spawn_count={spawn_count},")
@@ -227,19 +226,19 @@ def generate_cards_v2(cards):
         if collision_radius != 0.5:
             lines.append(f"        collision_radius={collision_radius},")
         if has_projectile:
-            lines.append(f"        has_projectile=True,")
+            lines.append("        has_projectile=True,")
         if tower_damage and tower_damage != dmg:
             lines.append(f"        tower_damage={float(tower_damage)},")
         if building_lifetime > 0:
             lines.append(f"        building_lifetime={building_lifetime},")
         if has_evolution:
-            lines.append(f"        has_evolution=True,")
+            lines.append("        has_evolution=True,")
         if is_champion:
-            lines.append(f"        is_champion=True,")
+            lines.append("        is_champion=True,")
         if death_spawn_count > 0:
             lines.append(f"        death_spawn_card={death_spawn_card},")
             lines.append(f"        death_spawn_count={death_spawn_count},")
-        lines.append(f"    ),")
+        lines.append("    ),")
 
     lines.append("}")
     lines.append("")

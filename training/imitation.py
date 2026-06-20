@@ -18,16 +18,15 @@ Data sources:
 from __future__ import annotations
 
 import csv
-import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
 from torch.utils.data import DataLoader, Dataset
 
 logger = logging.getLogger(__name__)

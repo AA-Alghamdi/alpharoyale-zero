@@ -153,6 +153,7 @@ class ADBController:
             )
             if result.returncode == 0:
                 import io
+
                 from PIL import Image
                 img = Image.open(io.BytesIO(result.stdout))
                 return np.array(img)

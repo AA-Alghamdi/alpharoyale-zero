@@ -15,8 +15,8 @@ Inspired by:
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
-from enum import IntEnum, auto
+from dataclasses import dataclass
+from enum import IntEnum
 
 import numpy as np
 

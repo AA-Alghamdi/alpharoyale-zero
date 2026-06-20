@@ -17,7 +17,6 @@ multi-agent reinforcement learning" Nature 2019.
 
 from __future__ import annotations
 
-import copy
 import logging
 import uuid
 from dataclasses import dataclass, field

@@ -8,20 +8,22 @@ and gumbel_search.py expect.
 
 from __future__ import annotations
 
-import enum
 import random
-from dataclasses import dataclass
 
 import numpy as np
 
-from crsim.cards import CardType, EntityKind, TargetMode, CARD_DEFS
+from crsim.cards import CARD_DEFS, CardType, EntityKind, TargetMode
 from crsim.constants import (
-    ARENA_H, ARENA_W, NUM_HAND_SLOTS, ACTION_SPACE_SIZE, WAIT_ACTION,
-    KING_TOWER_HP, PRINCESS_TOWER_HP, TOTAL_MAX_TICKS,
-    RIVER_ROW_LO, RIVER_ROW_HI,
+    ACTION_SPACE_SIZE,
+    ARENA_H,
+    ARENA_W,
+    NUM_HAND_SLOTS,
+    RIVER_ROW_HI,
+    RIVER_ROW_LO,
+    WAIT_ACTION,
 )
 from crsim.entities import Entity
-from crsim.game import GamePhase, GameResult, PlayerState, Action
+from crsim.game import Action, GamePhase, GameResult, PlayerState
 
 # Mapping from Python CardType enum to Rust engine card names.
 # Maps to spells_characters.csv Name column for troops/buildings,

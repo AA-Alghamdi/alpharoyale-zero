@@ -10,6 +10,7 @@ As of June 2026: 9+ confirmed heroes.
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 from crsim.cards import CardType
 
 

@@ -7,6 +7,7 @@ Contains evolution abilities, stat boosts, and cycle requirements.
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 from crsim.cards import CardType
 
 
