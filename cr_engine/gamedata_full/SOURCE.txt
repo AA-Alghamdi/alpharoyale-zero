@@ -1,0 +1,7 @@
+Source: https://github.com/RoyaleAPI/cr-api-data (docs/json)
+Fetched commit: d5461b0a59bff33c4da2fc845b07275b66b2d6ff
+Fetched: 2026-06-20
+
+Decoded Supercell APK game data (csv_logic). Stats are card LEVEL 1 base
+values; scale to tournament standard (King Level 11) via rarities.json
+power_level_multiplier with index = 9 - relative_level.
