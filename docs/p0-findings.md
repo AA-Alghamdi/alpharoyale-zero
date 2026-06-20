@@ -183,10 +183,45 @@ the current VM:
 
 ---
 
-## 7. Reproduce it
+## 7. Dynamic validation via Unicorn CPU emulation (option C, executed)
+
+Option C from §6 was run as a **validation-only** exercise: map `libg.so` into a
+Unicorn ARM CPU and execute the relevant functions in isolation to confirm the
+fix's *mechanism* dynamically (not a full battle — that still needs §6 option A).
+Harness: `tools/p0/unicorn/` (`uc_engine.py` loader + `validate_p0_fix.py`).
+Imported PLT functions are serviced in Python (bump allocator behind
+operator-new/malloc, working `mem*`, no-op `delete`/`free`).
+
+Four experiments, all against the byte-verified v1.3.2 binary:
+
+| # | what it executes | result |
+|---|---|---|
+| **A** | `begin_battle@0xee708` gate (`ldr [r4,#0xb0]; cmp #0; beq 0xee854`) | **PROVEN** — `arena==0` → `0xee854` (SKIP tower-wiring = the crash); `arena!=0` → `0xee712` (tower-wiring runs) |
+| **B** | the arena builder `0xeed64` run **bare** | **walls** (as expected) — wanders into uninitialised gamedata/NEON code; a bare memory-poke cannot drive it |
+| **B2** | the arena-construction core `0xeef04..0xeef1e` in isolation | **PROVEN** — `arg2==0` → `battle+0xb0` stays NULL (today's P0 state); `arg2!=0` → `operator new(0x1c)` + ctor, pointer **stored at `battle+0xb0`** |
+| **B3** | the builder `0xeed64` **end-to-end** (data-driven helpers stubbed, `arg2!=0`) | **PROVEN** — control reaches the store at `0xeef1e`; `battle+0xb0` ends **non-null**, clean return |
+
+**What this establishes (logic):** the P0 crash gate is exactly the `battle+0xb0`
+null check (A); the field is populated by an `operator new`'d arena inside the
+builder (B2/B3); and the lever that decides whether the arena is built is the
+builder's `arg3` == **`load_battle_state`'s `arg2`** (B2). This is direct dynamic
+support for §5 fix #2: calling `load_battle_state` with the right argument makes
+the engine build a non-null arena, which makes `begin_battle` wire the towers.
+
+**What it does *not* establish (honest limits):** the bare builder walls on
+uninitialised gamedata (B), so this is *not* a runtime and proves nothing about
+the **stream/data** the function consumes — only the function-local control/data
+flow. The `arg2!=0` cases also stub the element ctors to identity. A real,
+crash-free 200k-tick battle still requires §6 option A (an ARM exec host with the
+engine's gamedata initialised). The fix remains **blocked on execution**, not on
+mechanism understanding.
+
+---
+
+## 8. Reproduce it
 
 ```bash
-pip install pyelftools capstone
+pip install pyelftools capstone unicorn
 
 # 1. fetch + byte-verify + fingerprint-validate the engine binary
 tools/p0/fetch_and_verify_engine.sh            # -> .p0-engine/libg-armeabi-v7a.so
@@ -196,4 +231,7 @@ tools/p0/clone_scroll.sh                        # -> .p0-engine/Scroll
 
 # 3. (optional) re-derive a function's signature from its real callers
 python3 tools/p0/find_callers.py .p0-engine/libg-armeabi-v7a.so 0x11a428 0x11a274
+
+# 4. dynamically validate the fix mechanism (Unicorn; §7)
+python3 tools/p0/unicorn/validate_p0_fix.py    # exit 0 = A/B2/B3 proven
 ```
