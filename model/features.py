@@ -10,9 +10,28 @@ import math
 
 import numpy as np
 
+from crsim.cards import TargetMode
 from crsim.constants import (
     ARENA_H,
     ARENA_W,
+    CH_ENEMY_AIR,
+    CH_ENEMY_BUILDING,
+    CH_ENEMY_DPS,
+    CH_ENEMY_GROUND,
+    CH_ENEMY_HP,
+    CH_ENEMY_READY,
+    CH_ENEMY_TOWER_HP,
+    CH_ENEMY_WINCON,
+    CH_FRIENDLY_AIR,
+    CH_FRIENDLY_BUILDING,
+    CH_FRIENDLY_DPS,
+    CH_FRIENDLY_GROUND,
+    CH_FRIENDLY_HP,
+    CH_FRIENDLY_READY,
+    CH_FRIENDLY_TOWER_HP,
+    CH_FRIENDLY_WINCON,
+    CH_PLACEMENT_MASK,
+    CH_STATIC_MAP,
     KING_TOWER_HP,
     MAX_ELIXIR,
     NUM_CARD_TYPES,
@@ -50,50 +69,59 @@ def encode_state(
     flip = player == 1  # flip board so current player is always at bottom
 
     # ------------------------------------------------------------------
-    # Spatial channels
+    # Spatial channels (semantic planes; see crsim.constants for layout)
     # ------------------------------------------------------------------
     for entity in game.entities:
         if not entity.alive:
             continue
 
-        # Determine channel offset
         is_friendly = entity.owner == player
-        if entity.is_tower:
-            # Towers go into channels 2*NUM_CARD_TYPES and 2*NUM_CARD_TYPES+1
-            chan = 2 * NUM_CARD_TYPES if is_friendly else 2 * NUM_CARD_TYPES + 1
-            ex, ey = entity.x, entity.y
-            if flip:
-                ey = (ARENA_H - 1) - ey
-            ix, iy = int(round(ex)), int(round(ey))
-            ix = max(0, min(ARENA_W - 1, ix))
-            iy = max(0, min(ARENA_H - 1, iy))
-            hp_norm = entity.hp / entity.max_hp if entity.max_hp > 0 else 0
-            spatial[chan, iy, ix] = max(spatial[chan, iy, ix], hp_norm)
-            continue
-
-        # Unit density channels
-        ct = entity.card_type
-        if ct < 0 or ct >= NUM_CARD_TYPES:
-            continue
-        chan_base = 0 if is_friendly else NUM_CARD_TYPES
-        chan = chan_base + int(ct)
-
         ex, ey = entity.x, entity.y
         if flip:
             ey = (ARENA_H - 1) - ey
+        hp_norm = entity.hp / entity.max_hp if entity.max_hp > 0 else 0.0
 
-        hp_norm = entity.hp / entity.max_hp if entity.max_hp > 0 else 0
+        if entity.is_tower:
+            ix = max(0, min(ARENA_W - 1, int(round(ex))))
+            iy = max(0, min(ARENA_H - 1, int(round(ey))))
+            chan = CH_FRIENDLY_TOWER_HP if is_friendly else CH_ENEMY_TOWER_HP
+            spatial[chan, iy, ix] = max(spatial[chan, iy, ix], hp_norm)
+            continue
 
-        # Gaussian splat
+        # Choose semantic planes for this unit.
+        hp_chan = CH_FRIENDLY_HP if is_friendly else CH_ENEMY_HP
+        dps_chan = CH_FRIENDLY_DPS if is_friendly else CH_ENEMY_DPS
+        dps_norm = min(entity.dps / 500.0, 4.0)
+        planes: list[tuple[int, float]] = [(hp_chan, hp_norm), (dps_chan, dps_norm)]
+
+        if entity.is_building:
+            planes.append(
+                (CH_FRIENDLY_BUILDING if is_friendly else CH_ENEMY_BUILDING, hp_norm)
+            )
+        elif entity.is_flying:
+            planes.append((CH_FRIENDLY_AIR if is_friendly else CH_ENEMY_AIR, 1.0))
+        else:
+            planes.append((CH_FRIENDLY_GROUND if is_friendly else CH_ENEMY_GROUND, 1.0))
+
+        if int(entity.target_mode) == int(TargetMode.BUILDINGS):
+            planes.append(
+                (CH_FRIENDLY_WINCON if is_friendly else CH_ENEMY_WINCON, 1.0)
+            )
+
+        if entity.attack_interval > 0 and entity.attack_timer <= 0:
+            planes.append((CH_FRIENDLY_READY if is_friendly else CH_ENEMY_READY, 1.0))
+
+        # Gaussian splat into all selected planes.
         cx, cy = int(round(ex)), int(round(ey))
         for dx in range(-_GAUSSIAN_RANGE, _GAUSSIAN_RANGE + 1):
             for dy in range(-_GAUSSIAN_RANGE, _GAUSSIAN_RANGE + 1):
                 gx, gy = cx + dx, cy + dy
                 if 0 <= gx < ARENA_W and 0 <= gy < ARENA_H:
                     w = _gaussian(ex - gx, ey - gy)
-                    spatial[chan, gy, gx] += hp_norm * w
+                    for chan, val in planes:
+                        spatial[chan, gy, gx] += val * w
 
-    # Channel 42: valid placement mask
+    # Valid placement mask plane
     mask = game.get_valid_actions_mask(player)
     for slot in range(NUM_HAND_SLOTS):
         for x in range(ARENA_W):
@@ -101,9 +129,9 @@ def encode_state(
                 action_id = slot * ARENA_W * ARENA_H + x * ARENA_H + y
                 if mask[action_id]:
                     vy = (ARENA_H - 1 - y) if flip else y
-                    spatial[2 * NUM_CARD_TYPES + 2, vy, x] = 1.0
+                    spatial[CH_PLACEMENT_MASK, vy, x] = 1.0
 
-    # Channel 2*N+3: static map (river = 1, bridges = 0.5)
+    # Static map plane (river = 1, bridges = 0.5)
     from crsim.constants import (
         BRIDGE_LEFT_COLS,
         BRIDGE_RIGHT_COLS,
@@ -117,7 +145,7 @@ def encode_state(
                 BRIDGE_LEFT_COLS[0] <= x <= BRIDGE_LEFT_COLS[1]
                 or BRIDGE_RIGHT_COLS[0] <= x <= BRIDGE_RIGHT_COLS[1]
             )
-            spatial[2 * NUM_CARD_TYPES + 3, vy, x] = 0.5 if is_bridge else 1.0
+            spatial[CH_STATIC_MAP, vy, x] = 0.5 if is_bridge else 1.0
 
     # ------------------------------------------------------------------
     # Scalar features

@@ -37,6 +37,13 @@ class GumbelConfig:
     playout_cap_randomization: bool = True
     playout_cap_min: int = 4
     playout_cap_max: int = 32
+    # How many game ticks each simulation rolls forward before bootstrapping
+    # with the value net. The agent only re-decides every decision interval, so
+    # rolling forward a full interval (rather than a single 50ms tick) means the
+    # bootstrap value reflects the *consequences* of the action (units moving,
+    # combat resolving) instead of a near-identical next-tick state. Set this to
+    # match the self-play decision interval.
+    rollout_ticks: int = 8
 
 
 class GumbelNode:
@@ -263,6 +270,15 @@ class GumbelMuZeroSearch:
 
                     actions = [our_action, opp_action] if player == 0 else [opp_action, our_action]
                     sim_game.step(actions)
+
+                    # Roll forward the rest of the decision interval with no new
+                    # placements (both players WAIT), so the bootstrap value
+                    # reflects the action's consequences over the full window.
+                    wait_actions = [Action(0, -1), Action(1, -1)]
+                    for _ in range(max(0, cfg.rollout_ticks - 1)):
+                        if sim_game.done:
+                            break
+                        sim_game.step(wait_actions)
 
                     if sim_game.done:
                         value = sim_game.get_reward(player)
