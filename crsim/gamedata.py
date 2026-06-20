@@ -267,6 +267,44 @@ def authentic_core_fields(game: GameData, card_type) -> dict | None:
     return _troop_or_building_fields(game, card, stats, is_building=False)
 
 
+def crown_tower_damage_percent(game: GameData, card_type) -> float:
+    """Authentic ``crown_tower_damage_percent`` for a card (0 if none).
+
+    The reduction lives in different places per card: on the character row
+    (Miner), the spell row (Zap/Freeze), or — for the damage spells whose
+    numbers sit on their projectile (Fireball/Arrows/Rocket/Snowball/Log) — on
+    the projectile, named ``<sc_key>Spell`` (or linked via the spell's
+    ``projectile`` field, e.g. Lightning -> ``LighningSpell``).
+    """
+    card = game.lookup(card_type)
+    if not card:
+        return 0.0
+    sc = card.get("sc_key") or card.get("name") or ""
+    n = _norm(sc)
+
+    for src in (game.character_stats(sc), game.building_stats(sc), game.spells.get(sc)):
+        if src:
+            pct = src.get("crown_tower_damage_percent")
+            if pct:
+                return float(pct)
+
+    # Damage spells: number is on the projectile. Follow an explicit link first,
+    # then match by ``<sc_key>Spell`` / prefix.
+    spell = game.spells.get(sc)
+    proj_link = spell.get("projectile") if spell else None
+    if proj_link and proj_link in game.projectiles:
+        pct = game.projectiles[proj_link].get("crown_tower_damage_percent")
+        if pct:
+            return float(pct)
+    for pname, p in game.projectiles.items():
+        pn = _norm(pname)
+        if (pn == n + "SPELL" or pn == n + "PROJECTILE" or pn.startswith(n)) and p.get(
+            "crown_tower_damage_percent"
+        ):
+            return float(p["crown_tower_damage_percent"])
+    return 0.0
+
+
 def build_name_map(game: GameData, card_types) -> dict:
     """For diagnostics: map each CardType to its matched card dict."""
     return {ct: game.lookup(ct) for ct in card_types if game.lookup(ct)}
@@ -289,7 +327,15 @@ def apply_authentic_stats(card_defs: dict, *, data_dir: Path | None = None) -> t
     report: dict = {}
 
     for card_type, base in card_defs.items():
-        core = authentic_core_fields(game, card_type)
+        core = authentic_core_fields(game, card_type) or {}
+
+        # Crown-tower damage reduction is sourced independently: many damage
+        # spells (Fireball/Arrows/Rocket) have no core stat row to overlay, but
+        # still carry an authentic crown_tower_damage_percent on their projectile.
+        ctd = crown_tower_damage_percent(game, card_type)
+        if ctd:
+            core["crown_tower_damage_percent"] = ctd
+
         if not core:
             continue
 

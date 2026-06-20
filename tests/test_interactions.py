@@ -11,6 +11,8 @@ Expected outcomes are sourced from live-game balance at tournament standard
 
 from __future__ import annotations
 
+import pytest
+
 from crsim.cards import CARD_DEFS, CardType
 from crsim.entities import Entity, entity_from_card
 from crsim.game import Action, CRGame
@@ -372,3 +374,41 @@ def test_death_damage_spares_distant_enemy():
     golem.hp = 0.0
     step_n(g, 2)
     assert far.hp == hp0, "Death explosion must not reach an enemy outside its radius"
+
+
+# ---------------------------------------------------------------------------
+# Crown-tower damage reduction (spells / Miner deal less to towers)
+# ---------------------------------------------------------------------------
+
+
+def _enemy_princess(game: CRGame) -> object:
+    return next(e for e in game.entities if e.owner == 1 and e.is_tower and not e.is_king_tower)
+
+
+def test_fireball_deals_reduced_damage_to_crown_tower():
+    g = fresh_game()
+    fb = CARD_DEFS[CardType.FIREBALL]
+    assert fb.crown_tower_damage_percent == -70.0
+    tower = _enemy_princess(g)
+    hp0 = tower.hp
+    cast_spell(g, CardType.FIREBALL, 0, tower.x, tower.y)
+    step_n(g, 2)
+    # -70% => the crown tower takes 30% of the full 689 damage.
+    assert (hp0 - tower.hp) == pytest.approx(fb.damage_per_hit * 0.30, rel=1e-3)
+
+
+def test_fireball_full_damage_to_troops():
+    g = fresh_game()
+    fb = CARD_DEFS[CardType.FIREBALL]
+    musk = spawn(g, CardType.MUSKETEER, 1, 9.0, 16.0)
+    hp0 = musk.hp
+    cast_spell(g, CardType.FIREBALL, 0, 9.0, 16.0)
+    step_n(g, 2)
+    # A troop takes the full hit, not the crown-tower-reduced amount.
+    assert (hp0 - musk.hp) == pytest.approx(fb.damage_per_hit, rel=1e-3)
+
+
+def test_rocket_and_log_have_authentic_crown_reduction():
+    assert CARD_DEFS[CardType.ROCKET].crown_tower_damage_percent == -75.0
+    assert CARD_DEFS[CardType.THE_LOG].crown_tower_damage_percent == -80.0
+    assert CARD_DEFS[CardType.MINER].crown_tower_damage_percent == -75.0

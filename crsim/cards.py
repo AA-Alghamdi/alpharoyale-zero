@@ -175,7 +175,11 @@ class CardDef:
     mass: float = 6.0  # determines push priority (Knight=6, Giant=18, Skeleton=1)
     has_projectile: bool = False
     projectile_speed: float = 0.0  # tiles/sec for ranged attacks; 0 = melee/instant
-    tower_damage: float = 0.0
+    tower_damage: float = 0.0  # legacy/unused; superseded by crown_tower_damage_percent
+    # Crown-tower damage modifier as a signed percent (authentic
+    # ``crown_tower_damage_percent``): -70 means a crown tower takes 30% of the
+    # normal damage (Fireball/Arrows/Zap), -75 Rocket/Miner, -80 The Log.
+    crown_tower_damage_percent: float = 0.0
     building_lifetime: float = 0.0
     has_evolution: bool = False
     is_champion: bool = False

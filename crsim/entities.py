@@ -41,6 +41,9 @@ class Entity:
     death_damage: float = 0.0
     death_damage_radius: float = 0.0
 
+    # Crown-tower damage modifier (signed percent; -75 => tower takes 25%)
+    crown_tower_damage_percent: float = 0.0
+
     # Building fields
     is_building: bool = False
     building_timer: float = 0.0  # remaining lifetime (seconds)
@@ -239,6 +242,7 @@ def entity_from_card(
         minimum_range=card_def.minimum_range,
         death_damage=card_def.death_damage,
         death_damage_radius=card_def.death_damage_radius,
+        crown_tower_damage_percent=card_def.crown_tower_damage_percent,
     )
 
 
