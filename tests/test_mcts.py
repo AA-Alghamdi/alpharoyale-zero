@@ -93,6 +93,38 @@ def test_mcts_select_action():
     assert mask[action_id], f"Selected invalid action {action_id}"
 
 
+def test_mcts_search_puts_zero_mass_on_illegal_actions():
+    """The search policy must never recommend an illegal action."""
+    model = CRZeroNet(n_res_blocks=2, n_filters=32)
+    model.eval()
+
+    config = MCTSConfig(n_simulations=16)
+    player = MCTSPlayer(model=model, config=config, device=torch.device("cpu"))
+
+    game = CRGame(seed=7)
+    probs = player.search(game, player=0)
+    mask = game.get_valid_actions_mask(0)
+
+    assert probs[~mask].sum() == 0.0, "search assigned probability to illegal actions"
+    # All the mass sits on legal actions and still normalizes.
+    assert abs(probs[mask].sum() - 1.0) < 1e-4
+
+
+def test_mcts_deterministic_selection_is_legal_and_argmax():
+    """Deterministic selection returns the visit-count argmax, and it is legal."""
+    model = CRZeroNet(n_res_blocks=2, n_filters=32)
+    model.eval()
+
+    config = MCTSConfig(n_simulations=16)
+    player = MCTSPlayer(model=model, config=config, device=torch.device("cpu"))
+
+    game = CRGame(seed=7)
+    action_id, probs = player.select_action(game, player=0, deterministic=True)
+
+    assert action_id == int(np.argmax(probs))
+    assert game.get_valid_actions_mask(0)[action_id]
+
+
 def test_action_id_conversion():
     """Action ID ↔ Action conversion is consistent."""
     from crsim.constants import ARENA_H, ARENA_W, WAIT_ACTION
