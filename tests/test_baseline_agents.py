@@ -11,6 +11,7 @@ import math
 from crsim.game import CRGame
 from eval.baseline_agents import (
     HeuristicAgent,
+    MetaAgent,
     RandomAgent,
     WaitAgent,
     evaluate_agent,
@@ -41,6 +42,7 @@ def test_agents_emit_legal_actions():
     assert _agent_emits_legal_actions(RandomAgent(seed=1))
     assert _agent_emits_legal_actions(HeuristicAgent())
     assert _agent_emits_legal_actions(WaitAgent())
+    assert _agent_emits_legal_actions(MetaAgent())
 
 
 def test_winrate_to_elo_anchor_and_monotonic():
@@ -76,6 +78,25 @@ def test_heuristic_competitive_vs_random():
     total = tot_a + tot_b + tot_d
     winrate = tot_a / total
     assert winrate >= 0.45, (tot_a, tot_b, tot_d)
+
+
+def test_meta_dominates_wait_agent():
+    a_wins, b_wins, draws = play_match(MetaAgent(), WaitAgent(), n_games=8, seed=0)
+    assert a_wins == 8, (a_wins, b_wins, draws)
+
+
+def test_meta_is_stronger_than_heuristic():
+    # The value-spell / efficient-defense / win-condition bot is the next rung
+    # up: it should out-score the plain heuristic head-to-head. Deterministic
+    # (neither agent uses RNG), so this is a stable inequality.
+    tot_a = tot_b = tot_d = 0
+    for rseed in (0, 100, 200):
+        a, b, d = play_match(MetaAgent(), HeuristicAgent(), n_games=10, seed=rseed)
+        tot_a += a
+        tot_b += b
+        tot_d += d
+    winrate = tot_a / (tot_a + tot_b + tot_d)
+    assert winrate > 0.55, (tot_a, tot_b, tot_d)
 
 
 def test_evaluate_agent_returns_consistent_summary():
