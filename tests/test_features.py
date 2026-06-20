@@ -85,6 +85,20 @@ def test_evolved_state_is_encoded():
     assert _row_for(g, plain, 0)[23] == 0.0
 
 
+def test_towers_have_no_card_derived_features():
+    # Towers carry a placeholder card_type (KNIGHT); they must not inherit
+    # KNIGHT's hero flag or elixir cost.
+    g = _fresh_game()
+    features, mask = extract_entity_features(g, 0)
+    alive = [e for e in g.entities if e.alive]
+    tower_rows = [features[i] for i, e in enumerate(alive) if e.is_tower]
+    assert tower_rows  # the fresh game has towers
+    for row in tower_rows:
+        assert row[12] == 1.0  # flagged as a tower
+        assert row[20] == 0.0  # no elixir cost
+        assert row[24] == 0.0  # not a hero
+
+
 def test_active_ability_effects_are_encoded():
     g = _fresh_game()
     aq = _spawn(g, CardType.ARCHER_QUEEN, 0, 9.0, 16.0)

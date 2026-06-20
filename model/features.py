@@ -322,9 +322,14 @@ def extract_entity_features(
         # Building timer
         f[19] = e.building_timer / 70.0 if e.is_building else 0.0
 
+        # Card def for this entity. Towers carry a placeholder card_type
+        # (KNIGHT) and are not deployable cards, so they get no card-derived
+        # features (elixir cost / hero flag).
+        card_def = None if e.is_tower else CARD_DEFS.get(e.card_type)
+
         # Elixir cost (from card def if available)
-        if e.card_type in CARD_DEFS:
-            f[20] = CARD_DEFS[e.card_type].cost / 10.0
+        if card_def is not None:
+            f[20] = card_def.cost / 10.0
 
         # Velocity estimate (direction toward target)
         target = game._get_entity(e.target_eid) if e.target_eid >= 0 else None
@@ -336,7 +341,6 @@ def extract_entity_features(
             f[22] = dy
 
         # Evolution / Hero / Champion flags (from live entity + card def)
-        card_def = CARD_DEFS.get(e.card_type)
         f[23] = 1.0 if e.is_evolved else 0.0
         f[24] = 1.0 if (card_def is not None and card_def.has_hero) else 0.0
         f[25] = 1.0 if e.is_champion else 0.0
