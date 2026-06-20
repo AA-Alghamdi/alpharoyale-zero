@@ -694,3 +694,70 @@ def test_champion_ability_respects_cooldown_and_cost():
     g.apply_action(Action(player=0, ability=True))
     assert len(living(g, 0, CardType.SKELETONS)) == n
     assert g.players[0].elixir == pytest.approx(elx)
+
+
+# ---------------------------------------------------------------------------
+# Regression: charge damage and evolved on-attack effects (PR #19 findings)
+# ---------------------------------------------------------------------------
+
+
+def test_charge_hit_deals_2x_not_4x():
+    # ``damage_per_hit`` already applies ``charge_damage_mult`` (2x); the combat
+    # path must not double it again (was 4x).
+    g = fresh_game()
+    atk = spawn(g, CardType.KNIGHT, 0, 9.0, 8.0)
+    tgt = spawn(g, CardType.KNIGHT, 1, 9.0, 8.3)
+    tgt.max_hp = tgt.hp = 1_000_000.0  # survive a single hit
+    base = atk.dps * atk.attack_interval
+    atk.charge_damage_mult = 2.0
+    atk.next_hit_is_charge = True
+    atk.target_eid = tgt.eid
+    atk.attack_timer = 0.001
+    hp0 = tgt.hp
+    g._process_combat(atk)
+    assert (hp0 - tgt.hp) == pytest.approx(base * 2.0, rel=1e-3)
+
+
+def test_evolved_pekka_butterheal_only_on_kill():
+    # Butter-Heal heals only on a killing blow (not every attack), based on the
+    # defeated unit's HP, overhealing up to 1.66x.
+    g = fresh_game()
+    pekka = spawn(g, CardType.PEKKA, 0, 9.0, 8.0)
+    pekka.is_evolved = True
+    pekka.hp = pekka.max_hp
+    tank = spawn(g, CardType.KNIGHT, 1, 9.0, 8.3)
+    tank.max_hp = tank.hp = 1_000_000.0  # survives -> no kill -> no heal
+    pekka.target_eid = tank.eid
+    pekka.attack_timer = 0.001
+    g._process_combat(pekka)
+    assert pekka.hp == pytest.approx(pekka.max_hp)  # no overheal without a kill
+
+    g2 = fresh_game()
+    pekka2 = spawn(g2, CardType.PEKKA, 0, 9.0, 8.0)
+    pekka2.is_evolved = True
+    pekka2.hp = pekka2.max_hp
+    victim = spawn(g2, CardType.SKELETONS, 1, 9.0, 8.3)
+    victim.hp = 1.0  # dies in one hit -> Butter-Heal triggers
+    pekka2.target_eid = victim.eid
+    pekka2.attack_timer = 0.001
+    g2._process_combat(pekka2)
+    assert not victim.alive
+    assert pekka2.hp > pekka2.max_hp  # overhealed past full
+    assert pekka2.hp <= pekka2.max_hp * 1.66 + 1e-6
+
+
+def test_evolved_battle_ram_knockback_only_while_charging():
+    # Head-First Ram knocks back only while charging, not on every attack.
+    g = fresh_game()
+    ram = spawn(g, CardType.BATTLE_RAM, 0, 9.0, 8.0)
+    ram.is_evolved = True
+    target = spawn(g, CardType.KNIGHT, 1, 9.0, 9.0)
+    y0 = target.y
+
+    ram.is_charging = False
+    g._apply_evo_on_attack(ram, target)
+    assert target.y == pytest.approx(y0)  # no knockback when not charging
+
+    ram.is_charging = True
+    g._apply_evo_on_attack(ram, target)
+    assert target.y > y0  # pushed away once charging

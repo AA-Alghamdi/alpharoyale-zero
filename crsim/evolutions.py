@@ -27,7 +27,8 @@ class EvolutionDef:
     knockback_tiles: float = 0.0  # e.g. Royal Giant: 1.0 tile
     pull_radius: float = 0.0  # e.g. Valkyrie: 5.5 tiles
     stun_duration: float = 0.0  # e.g. Tesla: 0.5s
-    heal_on_attack: bool = False  # e.g. Bats life leech
+    heal_on_attack: bool = False  # e.g. Bats life leech (heals every attack)
+    heal_on_kill: bool = False  # e.g. PEKKA Butter-Heal (heals on a killing blow)
     hp_boost_pct: float = 0.0  # e.g. Bats: +50%
     attack_speed_boost: float = 0.0  # e.g. Barbarians: +35%
 
@@ -202,7 +203,7 @@ EVOLUTION_DEFS: dict[CardType, EvolutionDef] = {
         stat_boost="Identical Stats",
         ability_name="Butter-Heal",
         ability_desc="After final blow to any unit, butterfly heals based on defeated unit's HP. Can overheal to +66% max HP.",
-        heal_on_attack=True,
+        heal_on_kill=True,
     ),
     CardType.MEGA_KNIGHT: EvolutionDef(
         card_type=CardType.MEGA_KNIGHT,

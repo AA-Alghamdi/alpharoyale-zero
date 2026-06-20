@@ -1018,10 +1018,9 @@ class CRGame:
                 )
                 dmg = current_dps * entity.attack_interval
             else:
+                # damage_per_hit already applies charge_damage_mult (2×) when
+                # next_hit_is_charge is set, so it must not be doubled again.
                 dmg = entity.damage_per_hit
-                # Charge hit deals 2× damage (Prince, Dark Prince, Ram Rider, etc.)
-                if entity.next_hit_is_charge:
-                    dmg *= 2.0
 
             card_def = CARD_DEFS.get(entity.card_type)
             stuns = card_def.stuns if card_def else False
@@ -1101,18 +1100,30 @@ class CRGame:
                 )
                 self.entities.append(clone)
 
-        # Bats "Life Leech": heal on attack, may overheal to 2x max HP.
+        # Bats "Life Leech": heal a fraction of own damage every attack,
+        # overhealing up to 2x max HP.
         if evo.heal_on_attack:
             heal = entity.damage_per_hit * 0.5
             entity.hp = min(entity.hp + heal, entity.max_hp * 2.0)
+
+        # PEKKA "Butter-Heal": heal only on a killing blow, scaled by the
+        # defeated unit's HP, overhealing up to +66% max HP (1.66x).
+        if evo.heal_on_kill and not target.alive:
+            heal = target.max_hp
+            entity.hp = min(entity.hp + heal, entity.max_hp * 1.66)
 
         # Barbarians "Blade Rage": attack-speed boost refreshed each attack.
         if evo.attack_speed_boost > 0:
             entity.attack_speed_timer = 3.0
             entity.attack_speed_mult = 1.0 + evo.attack_speed_boost / 100.0
 
-        # Knockback (Royal Giant / Mega Knight): push the target away.
-        if evo.knockback_tiles > 0 and not target.is_tower:
+        # Knockback (Royal Giant / Mega Knight): push the target away. The
+        # Battle Ram only knocks back while it is charging (Head-First Ram).
+        if (
+            evo.knockback_tiles > 0
+            and not target.is_tower
+            and not (entity.card_type == CardType.BATTLE_RAM and not entity.is_charging)
+        ):
             dx = target.x - entity.x
             dy = target.y - entity.y
             dist = math.sqrt(dx * dx + dy * dy)
