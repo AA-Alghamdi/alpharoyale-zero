@@ -158,6 +158,65 @@ def test_arrows_dont_kill_knight():
     assert k.alive, "Arrows (322) must NOT kill a Knight (1766 hp)"
 
 
+def test_fireball_kills_minions():
+    g = fresh_game()
+    for dx in (-0.2, 0.2):
+        spawn(g, CardType.MINIONS, 1, 9.0 + dx, 16.0)
+    cast_spell(g, CardType.FIREBALL, 0, 9.0, 16.0)
+    step_n(g, 2)
+    assert living(g, 1, CardType.MINIONS) == [], "Fireball (689) must kill Minions (230 hp, air)"
+
+
+def test_arrows_kill_minions():
+    g = fresh_game()
+    for dx in (-0.2, 0.2):
+        spawn(g, CardType.MINIONS, 1, 9.0 + dx, 16.0)
+    cast_spell(g, CardType.ARROWS, 0, 9.0, 16.0)
+    step_n(g, 2)
+    assert living(g, 1, CardType.MINIONS) == [], "Arrows (322) must kill Minions (230 hp, air)"
+
+
+def test_zap_does_not_kill_minion():
+    g = fresh_game()
+    m = spawn(g, CardType.MINIONS, 1, 9.0, 16.0)
+    cast_spell(g, CardType.ZAP, 0, 9.0, 16.0)
+    step_n(g, 2)
+    assert m.alive, "Zap (192) must NOT kill a Minion (230 hp)"
+    assert m.hp < m.max_hp, "Zap must still damage the Minion"
+
+
+def test_giant_snowball_does_not_kill_goblins():
+    g = fresh_game()
+    gob = spawn(g, CardType.GOBLINS, 1, 9.0, 16.0)
+    cast_spell(g, CardType.GIANT_SNOWBALL, 0, 9.0, 16.0)
+    step_n(g, 2)
+    assert gob.alive, "Giant Snowball (179) must NOT kill a Goblin (202 hp)"
+
+
+def test_lightning_kills_wizard():
+    g = fresh_game()
+    w = spawn(g, CardType.WIZARD, 1, 9.0, 16.0)
+    cast_spell(g, CardType.LIGHTNING, 0, 9.0, 16.0)
+    step_n(g, 3)
+    assert not w.alive, "Lightning (1057) must kill a Wizard (721 hp)"
+
+
+def test_rocket_kills_wizard():
+    g = fresh_game()
+    w = spawn(g, CardType.WIZARD, 1, 9.0, 16.0)
+    cast_spell(g, CardType.ROCKET, 0, 9.0, 16.0)
+    step_n(g, 3)
+    assert not w.alive, "Rocket (1485) must kill a Wizard (721 hp)"
+
+
+def test_valkyrie_survives_fireball():
+    g = fresh_game()
+    v = spawn(g, CardType.VALKYRIE, 1, 9.0, 16.0)
+    cast_spell(g, CardType.FIREBALL, 0, 9.0, 16.0)
+    step_n(g, 2)
+    assert v.alive and v.hp < v.max_hp, "Valkyrie (1908 hp) must survive (but take) a Fireball (689)"
+
+
 # ---------------------------------------------------------------------------
 # 1v1 troop combat (clear outcomes regardless of micro)
 # ---------------------------------------------------------------------------
@@ -199,6 +258,26 @@ def test_valkyrie_clears_skeleton_army():
     step_n(g, secs(8))
     assert v.alive, "Valkyrie (splash) must survive a Skeleton Army"
     assert living(g, 1, CardType.SKELETON_ARMY) == [], "Valkyrie must clear the Skeleton Army"
+
+
+def test_bomber_splash_clears_skeletons():
+    g = fresh_game()
+    b = spawn(g, CardType.BOMBER, 0, 9.0, 8.0)
+    for dx in (-0.3, 0.0, 0.3):
+        spawn(g, CardType.SKELETONS, 1, 9.0 + dx, 8.7)
+    step_n(g, secs(5))
+    assert b.alive, "Bomber must survive a few lone Skeletons"
+    assert living(g, 1, CardType.SKELETONS) == [], "Bomber (223 splash) must clear clustered Skeletons"
+
+
+def test_baby_dragon_splash_clears_spear_goblins():
+    g = fresh_game()
+    bd = spawn(g, CardType.BABY_DRAGON, 0, 9.0, 8.0)
+    for dx in (-0.3, 0.0, 0.3):
+        spawn(g, CardType.SPEAR_GOBLINS, 1, 9.0 + dx, 8.7)
+    step_n(g, secs(6))
+    assert bd.alive, "Baby Dragon must survive Spear Goblins"
+    assert living(g, 1, CardType.SPEAR_GOBLINS) == [], "Baby Dragon (160 splash) must clear Spear Goblins"
 
 
 # ---------------------------------------------------------------------------
