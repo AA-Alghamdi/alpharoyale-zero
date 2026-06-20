@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -46,6 +46,7 @@ from crsim.constants import (
     TOWER_ATTACK_INTERVAL,
 )
 from crsim.entities import Entity, entity_from_card, make_tower
+from crsim.evolutions import EVOLUTION_DEFS
 from crsim.pathfinding import FlowFieldCache, direction_to_target
 
 
@@ -71,6 +72,11 @@ class PlayerState:
     hand: list[int]  # indices into deck (size 4)
     next_card_idx: int  # index of the next card to draw from deck
     elixir: float = STARTING_ELIXIR
+    # Evolution slots: the deck's evolution-capable cards (up to 2, as in live CR)
+    # and their current cycle charge. A card deploys evolved once it has been
+    # cycled the required number of times; deploying it resets the charge.
+    evo_slots: list[CardType] = field(default_factory=list)
+    evo_charge: dict[CardType, int] = field(default_factory=dict)
 
     def draw_card(self, used_hand_slot: int) -> None:
         """Replace the used hand slot with the next card from the deck cycle."""
@@ -123,11 +129,13 @@ class CRGame:
                 deck=deck_p0,
                 hand=list(range(4)),
                 next_card_idx=4,
+                evo_slots=self._default_evo_slots(deck_p0),
             ),
             PlayerState(
                 deck=deck_p1,
                 hand=list(range(4)),
                 next_card_idx=4,
+                evo_slots=self._default_evo_slots(deck_p1),
             ),
         ]
 
@@ -317,11 +325,47 @@ class CRGame:
 
         ps.elixir -= card_def.cost
 
+        # Evolution: this deployment is evolved if the card's cycle is charged.
+        evolved = self._consume_evolution(ps, card_type)
+
         # Spawn entities
-        self._spawn_card(action.player, card_def, action.x, action.y)
+        self._spawn_card(action.player, card_def, action.x, action.y, evolved=evolved)
 
         # Draw next card
         ps.draw_card(action.hand_slot)
+
+    # ------------------------------------------------------------------
+    # Evolutions
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _default_evo_slots(deck: list[CardType]) -> list[CardType]:
+        """Pick the deck's evolution slots: the first (up to 2) evo-capable cards."""
+        slots: list[CardType] = []
+        for ct in deck:
+            if ct in EVOLUTION_DEFS and ct not in slots:
+                slots.append(ct)
+                if len(slots) == 2:
+                    break
+        return slots
+
+    def _consume_evolution(self, ps: PlayerState, card_type: CardType) -> bool:
+        """Return whether this play deploys evolved, updating the cycle charge.
+
+        A card in an evo slot must be cycled ``cycles`` times (the live-game
+        "Evolution Cycles") before it deploys evolved; deploying it resets the
+        charge. Non-evo-slot cards never evolve.
+        """
+        if card_type not in ps.evo_slots:
+            return False
+        evo = EVOLUTION_DEFS.get(card_type)
+        required = evo.cycles if evo else 1
+        charge = ps.evo_charge.get(card_type, 0)
+        if charge >= required:
+            ps.evo_charge[card_type] = 0
+            return True
+        ps.evo_charge[card_type] = charge + 1
+        return False
 
     # ------------------------------------------------------------------
     # Champion abilities
@@ -463,8 +507,23 @@ class CRGame:
             )
             self.entities.append(skel)
 
+    def _apply_evolution(self, e: Entity, card_def: CardDef) -> None:
+        """Apply an evolved unit's stat boosts and special on-deploy effects."""
+        evo = EVOLUTION_DEFS.get(card_def.card_type)
+        if evo is None:
+            return
+        if evo.hp_boost_pct > 0:
+            mult = 1.0 + evo.hp_boost_pct / 100.0
+            e.hp *= mult
+            e.max_hp *= mult
+        # Knight "Elbow Reflection": one-shot damage-reduction shield on deploy.
+        if card_def.card_type == CardType.KNIGHT and evo.damage_reduction > 0:
+            e.evo_shield = True
+            e.evo_shield_mult = 1.0 - evo.damage_reduction
+
     def _spawn_card(
-        self, player: int, card_def: CardDef, x: float, y: float
+        self, player: int, card_def: CardDef, x: float, y: float,
+        evolved: bool = False,
     ) -> None:
         """Spawn entities for a played card."""
         # Spells: route to unit-spawning only when the spell actually drops
@@ -506,7 +565,10 @@ class CRGame:
                 y=y + oy,
                 hp_override=hp if count > 1 else 0.0,
                 dps_override=dps if count > 1 else 0.0,
+                evolved=evolved,
             )
+            if evolved:
+                self._apply_evolution(e, card_def)
             # Apply deploy stagger: each subsequent unit has additional delay
             e.deploy_timer += deploy_stagger * i
             e.is_deployed = e.deploy_timer <= 0
