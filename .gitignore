@@ -31,3 +31,6 @@ venv/
 .pytest_cache/
 cr_engine/target/
 *.so
+
+# P0 engine artifacts (proprietary libg.so — fetched, never committed)
+.p0-engine/
