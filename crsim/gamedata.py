@@ -163,10 +163,14 @@ def _troop_or_building_fields(game: GameData, card: dict, stats: dict, is_buildi
         "sight_range": (stats.get("sight_range") or 0) / 1000.0,
         "deploy_time": max((stats.get("deploy_time") or 0) / 1000.0, 0.0),
         "is_flying": flying,
-        "is_splash": splash > 0.0,
         "splash_radius": splash,
         "collision_radius": (stats.get("collision_radius") or 0) / 1000.0 or None,
     }
+    # Only upgrade is_splash to True from the data; never downgrade a
+    # hand-curated splash flag (some cards splash via special mechanics the
+    # standard columns don't encode).
+    if splash > 0.0:
+        fields["is_splash"] = True
     if only_bldg:
         fields["target_mode"] = TargetMode.BUILDINGS
     else:
