@@ -15,7 +15,8 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from crsim.constants import ACTION_SPACE_SIZE, WAIT_ACTION
+from crsim.actions import action_id_to_action as _action_id_to_action
+from crsim.constants import ACTION_SPACE_SIZE
 from crsim.game import Action, CRGame
 from model.features import encode_state
 from model.network import CRZeroNet
@@ -104,20 +105,6 @@ class MCTSNode:
             node.value_sum += value
             value = -value  # flip for opponent
             node = node.parent
-
-
-def _action_id_to_action(action_id: int, player: int) -> Action:
-    """Convert a flat action id to an Action object."""
-    if action_id == WAIT_ACTION:
-        return Action(player=player, hand_slot=-1)
-
-    from crsim.constants import ARENA_H, ARENA_W
-
-    slot = action_id // (ARENA_W * ARENA_H)
-    remainder = action_id % (ARENA_W * ARENA_H)
-    x = remainder // ARENA_H
-    y = remainder % ARENA_H
-    return Action(player=player, hand_slot=slot, x=float(x), y=float(y))
 
 
 class MCTSPlayer:
