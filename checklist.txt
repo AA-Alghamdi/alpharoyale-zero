@@ -20,6 +20,17 @@
 [ ] 6 cards with no CSV entry still hand-coded: GoblinCage, GoblinDrill, GoblinBrawler,
     BushGoblins, CursedHog, Guardienne
 
+== MECHANICS: MIN RANGE + DEATH DAMAGE (PR #11) ==
+[x] minimum_range field (CardDef+Entity), sourced from data (Mortar 3.5).
+    Engine: attacker can't hit targets inside the dead zone.
+[x] death_damage + death_damage_radius fields, sourced from data (Golem 224/2.0,
+    Ice Golem 85/2.0). Replaced the old tower_damage-as-death-damage hack.
+[x] Fixed latent bug: old hack made ANY troop with tower_damage>0 deal death
+    damage -> Miner wrongly dealt 48 on death. Removed.
+[x] Preserved Balloon (195) + Giant Skeleton (535) death bombs (not in the data
+    columns) via hand-set death_damage; loader only upgrades, never zeroes.
+[x] 4 golden tests (Mortar dead zone in/out, Golem explosion in/out radius).
+
 == DATA SOURCE UPGRADE (PR #10) ==
 [x] Found & vendored the FULL decoded game data (RoyaleAPI/cr-api-data docs/json)
     in cr_engine/gamedata_full/ (cards, characters, buildings, spells, projectiles,

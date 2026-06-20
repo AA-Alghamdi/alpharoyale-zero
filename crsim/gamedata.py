@@ -171,6 +171,16 @@ def _troop_or_building_fields(game: GameData, card: dict, stats: dict, is_buildi
     # standard columns don't encode).
     if splash > 0.0:
         fields["is_splash"] = True
+    # Mechanic fields: only emit when present so the overlay never zeroes out a
+    # hand-curated value the standard columns don't encode (e.g. Balloon's
+    # death bomb, modelled outside death_damage).
+    min_range = (stats.get("minimum_range") or 0) / 1000.0
+    if min_range > 0:
+        fields["minimum_range"] = min_range
+    death_dmg = game.scale(stats.get("death_damage") or 0, rarity)
+    if death_dmg > 0:
+        fields["death_damage"] = death_dmg
+        fields["death_damage_radius"] = (stats.get("death_damage_radius") or 0) / 1000.0 or 2.0
     if only_bldg:
         fields["target_mode"] = TargetMode.BUILDINGS
     else:

@@ -35,6 +35,11 @@ class Entity:
     is_flying: bool = False
     is_splash: bool = False
     splash_radius: float = 0.0
+    minimum_range: float = 0.0  # can't hit targets closer than this (Mortar/X-Bow)
+
+    # Death damage (explosion on death)
+    death_damage: float = 0.0
+    death_damage_radius: float = 0.0
 
     # Building fields
     is_building: bool = False
@@ -231,6 +236,9 @@ def entity_from_card(
         death_spawn_count=card_def.death_spawn_count,
         death_spawn_hp=card_def.death_spawn_hp,
         death_spawn_dps=card_def.death_spawn_dps,
+        minimum_range=card_def.minimum_range,
+        death_damage=card_def.death_damage,
+        death_damage_radius=card_def.death_damage_radius,
     )
 
 
