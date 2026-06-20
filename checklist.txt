@@ -1,0 +1,83 @@
+1:1 CLASH ROYALE REPLICA — MASTER CHECKLIST
+(authoritative source of truth = cr_engine/gamedata_v2/*.csv, extracted Supercell APK data)
+
+== PHASE A: AUTHENTIC DATA AS SINGLE SOURCE ==
+[x] crsim/gamedata.py — Python port of cr_engine/src/data.rs (parse 6 CSVs + level scaling)
+[x] CardType -> CSV name map (119/125 auto-matched; 6 newer cards keep hand-coded)
+[x] Overlay authentic CORE stats onto CARD_DEFS (hp, dmg, dps, hit_speed, load, speed,
+    range, sight, deploy, cost, target_mode, flying, splash, spawn_count, collision)
+[x] Ranged units: damage+splash come from projectiles.csv (Musketeer/Wizard/etc.)
+[x] FIXED double-scaling bug: APK rows=L1 (capital rarity, scale x mult); ClashStrategic
+    rows=already-L11 (lowercase rarity, no scaling). Detected by rarity casing.
+[x] Validation test vs wiki anchors (Knight HP 1766, Giant 4091, Musketeer ~218, Fireball 689)
+[x] Diff report: 90 cards corrected, 314 field fixes; many newer cards were stored at L1
+[x] Full suite green (103 tests)
+
+[ ] REFINE: legendary/epic L11 multipliers in data.rs are approximate (Legendary 1.3781
+    != 1.1^2); use exact CR per-level table for sub-2% damage precision
+[ ] REFINE: compound-summon cards (Rascals boy+girls, Goblin Gang gob+spear, 3M) only read
+    primary SummonCharacter; wire SummonCharacterSecond for heterogeneous spawns
+[ ] 6 cards with no CSV entry still hand-coded: GoblinCage, GoblinDrill, GoblinBrawler,
+    BushGoblins, CursedHog, Guardienne
+
+== DATA SOURCE UPGRADE (PR #10) ==
+[x] Found & vendored the FULL decoded game data (RoyaleAPI/cr-api-data docs/json)
+    in cr_engine/gamedata_full/ (cards, characters, buildings, spells, projectiles,
+    rarities, cards_evo). 297 fields per unit incl. ALL mechanic columns.
+[x] EXACT per-level scaling from rarities.json (idx = 9 - relative_level):
+    Knight 1766, Giant 4092, Pekka 3760/816, Mega Knight 3993 -- exact wiki.
+[x] Re-sourced TROOPS + BUILDINGS (exact L11 stats, full coverage).
+[x] Fixed compound-card mismatch: RAM_RIDER -> "Ram" main entity (was rider 593hp).
+[x] Completeness guard: skip overlay when matched entity has no hitpoints.
+[ ] Spells still on verified hand-coded values (damage spells live in projectiles
+    as <sc_key>Spell; area/spawn spells in spell file) -- authentic spell sourcing
+    is the next follow-up.
+[ ] 16 newest cards absent from this snapshot keep hand-coded values:
+    Little Prince, Goblin Demolisher/Machine, Suspicious Bush, Goblinstein, Rune
+    Giant, Berserker, Boss Bandit, Void, Goblin Curse, Spirit Empress, Vines,
+    Goblin Brawler, Bush Goblins, Cursed Hog, Guardienne.
+
+== DATA-AVAILABILITY FINDING (superseded by PR #10) ==
+The repo's CSVs richly encode CORE STATS (now sourced in PR #8) but are SPARSE on
+granular mechanic columns. Even the pure-APK v1 extract only has:
+  ChargeRange: 3 cards (Prince, DarkPrince, BattleRam)
+  DeathDamage: 3 cards (Golem, Golemite, IceGolemite)
+  CrownTowerDamagePercent: 1 card (Miner)
+  MinimumRange / SpecialRange / DeathSpawnCharacter / SpawnCharacter: 0 cards
+So most mechanics (min-range, full death-damage roster, status effects, spawn
+tables) are NOT in the data; they remain hand-curated in cards.py/evolutions.py/
+game.py, which already implements many of them. True 1:1 mechanics fidelity needs
+a fuller/newer APK extraction than what's in the repo.
+
+== GAME-MODE RULES == (PR #9)
+[x] Elixir ramp 1x -> 2x (last 60s regulation) -> 3x (overtime)
+[x] Overtime = sudden death (first tower destroyed wins instantly)
+[x] Tiebreak by remaining tower HP at end
+[ ] Tournament-standard L11 everywhere (done via Phase A scaling)
+
+== MECHANICS (encoded in CSV columns) ==
+[ ] Charge / dash (ChargeRange): Prince, Hog, Battle Ram, Bandit, Ram Rider, Dark Prince
+[ ] Death damage (DeathDamage/Radius): Giant Skeleton, Balloon, Electro Giant, Wall Breakers
+[ ] Death spawn: Golem->Golemites, Lava Hound->Pups, Skeleton Barrel, Goblin Barrel
+[ ] Multi-projectile (MultipleProjectiles): Magic Archer pierce, Firecracker, 3M
+[ ] Min range (MinimumRange): Mortar, X-Bow, Bowler
+[ ] Crown-tower damage % (CrownTowerDamagePercent): spells/Hog/etc.
+[ ] Area-effect objects (auras/DoT zones): Poison, Tornado, Heal, Rage, Graveyard, Clone
+[ ] Spawners (LifeTime + summon): Goblin Hut, Barbarian Hut, Furnace, Tombstone
+[ ] Status effects: stun (Zap/EWiz/Zappies), freeze, slow (Snowball/Ice), rage, heal
+[ ] Special attacks (SpecialAttackInterval/SpecialRange): Sparky, Inferno ramp, etc.
+
+== MODERN FEATURES ==
+[ ] Evolutions (evo cycles, evo-specific stats)
+[ ] Champions + abilities (ability elixir cost, on-demand activation)
+[ ] Tower troops (Cannoneer, Dagger Duchess, Royal Chef...)
+
+== GAME-MODE RULES ==
+[ ] Elixir: 1x (1/2.8s), 2x last 60s of regulation, 3x overtime
+[ ] Timing: 3-min regulation + up to 2-min (3x) overtime; sudden death
+[ ] Tiebreak: most towers -> first tower destroyed / lowest-HP tower
+[ ] Tournament-standard level 11 stats everywhere
+
+== VERIFICATION ==
+[ ] Expand golden interaction tests to authentic values across as many cards as possible
+[ ] Cross-engine conformance (Python vs Rust) once both source the same CSVs
