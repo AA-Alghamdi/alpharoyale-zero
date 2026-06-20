@@ -500,6 +500,46 @@ def test_golden_knight_dash_damages_a_line_and_repositions():
     assert gk.y == pytest.approx(14.0)
 
 
+def test_monk_protection_reduces_incoming_damage():
+    g = fresh_game()
+    monk = spawn(g, CardType.MONK, 0, 9.0, 16.0)
+    g.players[0].elixir = 8.0
+
+    hp0 = monk.hp
+    monk.take_damage(100.0)
+    full = hp0 - monk.hp
+    assert full == pytest.approx(100.0)
+
+    monk.hp = hp0
+    g.apply_action(Action(player=0, ability=True))
+    assert monk.damage_reduction_timer > 0
+    monk.take_damage(100.0)
+    # Protected: takes 20% of the hit.
+    assert (hp0 - monk.hp) == pytest.approx(20.0)
+
+
+def test_mighty_miner_bomb_explodes_after_delay():
+    g = fresh_game()
+    mm = spawn(g, CardType.MIGHTY_MINER, 0, 9.0, 12.0)
+    enemy = spawn(g, CardType.MUSKETEER, 1, 9.0, 12.0)
+    g.players[0].elixir = 8.0
+    g.apply_action(Action(player=0, ability=True))
+
+    assert len(g.pending_bombs) == 1
+    # The Miner burrowed forward from his planting spot.
+    assert mm.y > 12.0
+    # Drive only the bomb update so the timing check isn't perturbed by movement.
+    hp0 = enemy.hp
+    for _ in range(secs(1.0)):
+        g._update_bombs()
+    assert enemy.hp == pytest.approx(hp0)  # no damage before the fuse runs out
+    assert len(g.pending_bombs) == 1
+    for _ in range(secs(1.2)):
+        g._update_bombs()
+    assert enemy.hp < hp0  # bomb detonated at the planting spot
+    assert len(g.pending_bombs) == 0
+
+
 def test_champion_ability_respects_cooldown_and_cost():
     from crsim.constants import ABILITY_ACTION
 

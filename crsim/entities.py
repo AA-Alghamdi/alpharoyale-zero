@@ -53,6 +53,8 @@ class Entity:
     invisible_timer: float = 0.0  # while >0 the unit cannot be targeted
     attack_speed_timer: float = 0.0  # while >0 attacks are sped up
     attack_speed_mult: float = 1.0  # attack-timer multiplier during the boost
+    damage_reduction_timer: float = 0.0  # while >0 incoming damage is scaled
+    damage_reduction_mult: float = 1.0  # incoming-damage multiplier (e.g. 0.2 = 20%)
 
     # Building fields
     is_building: bool = False
@@ -180,6 +182,9 @@ class Entity:
 
     def take_damage(self, damage: float) -> float:
         """Apply damage, considering shield. Returns actual HP damage dealt."""
+        # Ability damage reduction (Monk's Pensive Protection) scales the hit.
+        if self.damage_reduction_timer > 0:
+            damage *= self.damage_reduction_mult
         if self.has_shield and self.shield_hp > 0:
             self.shield_hp -= damage
             if self.shield_hp <= 0:
