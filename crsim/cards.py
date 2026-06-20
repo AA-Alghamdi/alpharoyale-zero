@@ -1385,6 +1385,9 @@ CARD_DEFS: dict[CardType, CardDef] = {
         sight_range=5.5,
         target_mode=TargetMode.GROUND,
         is_champion=True,
+        # "Drop Bomb": plant a delayed high-damage explosion and burrow forward.
+        ability_cost=1,
+        ability_cooldown=11.0,
     ),
     CardType.ELIXIR_GOLEM: CardDef(
         card_type=CardType.ELIXIR_GOLEM,
@@ -1491,6 +1494,10 @@ CARD_DEFS: dict[CardType, CardDef] = {
         sight_range=5.5,
         target_mode=TargetMode.GROUND,
         is_champion=True,
+        # "Pensive Protection": sharply reduce incoming damage for 3.5s.
+        ability_cost=1,
+        ability_cooldown=12.0,
+        ability_duration=3.5,
     ),
     CardType.SKELETON_DRAGONS: CardDef(
         card_type=CardType.SKELETON_DRAGONS,

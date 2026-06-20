@@ -140,6 +140,9 @@ class CRGame:
         # Each: (source_owner, target_eid, x, y, speed, damage, is_splash, splash_radius, stuns, stun_duration)
         self.projectiles: list[dict] = []
 
+        # Delayed area explosions (e.g. Mighty Miner's bomb)
+        self.pending_bombs: list[dict] = []
+
         # Game state
         self.tick_count: int = 0
         self.phase: GamePhase = GamePhase.REGULAR
@@ -363,6 +366,30 @@ class CRGame:
             self._ability_archer_queen(champ)
         elif champ.card_type == CardType.GOLDEN_KNIGHT:
             self._ability_golden_knight(champ)
+        elif champ.card_type == CardType.MONK:
+            self._ability_monk(champ)
+        elif champ.card_type == CardType.MIGHTY_MINER:
+            self._ability_mighty_miner(champ)
+
+    def _ability_monk(self, champ: Entity) -> None:
+        """Pensive Protection: heavily reduce incoming damage for a short time."""
+        duration = 3.5
+        champ.damage_reduction_timer = duration
+        champ.damage_reduction_mult = 0.2  # takes 20% damage while protected
+
+    def _ability_mighty_miner(self, champ: Entity) -> None:
+        """Drop Bomb: plant a delayed high-damage explosion, then burrow forward."""
+        self.pending_bombs.append({
+            "x": champ.x,
+            "y": champ.y,
+            "owner": champ.owner,
+            "timer": 2.0,
+            "damage": 800.0,
+            "radius": 2.5,
+        })
+        # Burrow a few tiles forward toward the enemy side.
+        forward = 1.0 if champ.owner == 0 else -1.0
+        champ.y = max(0.0, min(float(ARENA_H - 1), champ.y + 4.0 * forward))
 
     def _ability_archer_queen(self, champ: Entity) -> None:
         """Cloaking Cape: go invisible and fire much faster for the duration."""
@@ -999,6 +1026,24 @@ class CRGame:
 
         self.projectiles = surviving
 
+    def _update_bombs(self) -> None:
+        """Count down delayed bombs; on expiry deal AoE damage at their spot."""
+        surviving = []
+        for bomb in self.pending_bombs:
+            bomb["timer"] -= TICK_DURATION
+            if bomb["timer"] > 0:
+                surviving.append(bomb)
+                continue
+            for other in self.entities:
+                if not other.alive or other.owner == bomb["owner"]:
+                    continue
+                if other.distance_to_pos(bomb["x"], bomb["y"]) <= bomb["radius"]:
+                    dmg = bomb["damage"]
+                    if other.is_tower:
+                        dmg *= 0.35  # spell-style crown-tower reduction
+                    other.take_damage(dmg)
+        self.pending_bombs = surviving
+
     # ------------------------------------------------------------------
     # Building decay & spawners
     # ------------------------------------------------------------------
@@ -1187,6 +1232,11 @@ class CRGame:
                 if e.attack_speed_timer <= 0:
                     e.attack_speed_timer = 0.0
                     e.attack_speed_mult = 1.0
+            if e.damage_reduction_timer > 0:
+                e.damage_reduction_timer -= TICK_DURATION
+                if e.damage_reduction_timer <= 0:
+                    e.damage_reduction_timer = 0.0
+                    e.damage_reduction_mult = 1.0
 
     def _process_death_spawns(self) -> None:
         """Handle death effects: death damage + spawn units (Golem→Golemites, etc.)."""
@@ -1308,6 +1358,9 @@ class CRGame:
 
         # 5c. Update in-flight projectiles
         self._update_projectiles()
+
+        # 5d. Update delayed area explosions (Mighty Miner bomb)
+        self._update_bombs()
 
         # 6. Process death spawns before removing dead entities
         self._process_death_spawns()
