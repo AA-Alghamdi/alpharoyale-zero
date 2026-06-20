@@ -27,6 +27,7 @@ import numpy as np
 
 from crsim.cards import CARD_DEFS, EntityKind
 from crsim.constants import (
+    ABILITY_ACTION,
     ARENA_H,
     ARENA_W,
     BRIDGE_LEFT_COLS,
@@ -179,6 +180,8 @@ class SearchAgent:
 def _action_from_id(action_id: int, player: int) -> Action:
     if action_id == WAIT_ACTION:
         return Action(player=player, hand_slot=-1)
+    if action_id == ABILITY_ACTION:
+        return Action(player=player, hand_slot=-1, ability=True)
     slot = action_id // (ARENA_W * ARENA_H)
     remainder = action_id % (ARENA_W * ARENA_H)
     x = remainder // ARENA_H

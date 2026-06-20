@@ -80,16 +80,17 @@ class PlayerState:
 
 @dataclass
 class Action:
-    """A player action: place a card or wait."""
+    """A player action: place a card, activate a champion ability, or wait."""
 
     player: int
     hand_slot: int = -1  # -1 = wait
     x: float = 0.0
     y: float = 0.0
+    ability: bool = False  # True = activate the player's deployed champion ability
 
     @property
     def is_wait(self) -> bool:
-        return self.hand_slot < 0
+        return self.hand_slot < 0 and not self.ability
 
 
 class CRGame:
@@ -234,12 +235,19 @@ class CRGame:
 
     def get_valid_actions_mask(self, player: int) -> np.ndarray:
         """Return a boolean mask of shape (ACTION_SPACE_SIZE,)."""
-        from crsim.constants import ACTION_SPACE_SIZE, WAIT_ACTION
+        from crsim.constants import ABILITY_ACTION, ACTION_SPACE_SIZE, WAIT_ACTION
 
         mask = np.zeros(ACTION_SPACE_SIZE, dtype=bool)
         mask[WAIT_ACTION] = True  # wait is always valid
 
         ps = self.players[player]
+
+        # Champion ability: valid when a deployed champion is off cooldown and
+        # the player can afford its activation cost.
+        champ = self._ready_champion(player)
+        if champ is not None and ps.elixir >= champ.ability_cost:
+            mask[ABILITY_ACTION] = True
+
         for slot_idx in range(NUM_HAND_SLOTS):
             card_idx = ps.hand[slot_idx]
             card_type = ps.deck[card_idx]
@@ -289,6 +297,9 @@ class CRGame:
 
     def apply_action(self, action: Action) -> None:
         """Apply a single player action."""
+        if action.ability:
+            self._activate_champion_ability(action.player)
+            return
         if action.is_wait:
             return
 
@@ -308,6 +319,69 @@ class CRGame:
 
         # Draw next card
         ps.draw_card(action.hand_slot)
+
+    # ------------------------------------------------------------------
+    # Champion abilities
+    # ------------------------------------------------------------------
+
+    def _ready_champion(self, player: int) -> Entity | None:
+        """The player's deployed champion whose ability can fire right now.
+
+        CR permits a single champion per deck and one on the field, so we return
+        the first alive, deployed champion owned by ``player`` whose ability is
+        off cooldown. Elixir is *not* checked here; callers that spend elixir
+        check it themselves (the mask uses this plus an elixir test).
+        """
+        for e in self.entities:
+            if (
+                e.alive
+                and e.is_champion
+                and e.owner == player
+                and e.is_deployed
+                and e.ability_cooldown_timer <= 0
+            ):
+                return e
+        return None
+
+    def _activate_champion_ability(self, player: int) -> None:
+        """Activate the player's champion ability if one is ready and affordable."""
+        champ = self._ready_champion(player)
+        if champ is None:
+            return
+        ps = self.players[player]
+        if ps.elixir < champ.ability_cost:
+            return
+        ps.elixir -= champ.ability_cost
+        champ.ability_cooldown_timer = champ.ability_cooldown
+        self._dispatch_champion_ability(champ)
+
+    def _dispatch_champion_ability(self, champ: Entity) -> None:
+        """Apply a champion's ability effect, dispatched by card type."""
+        if champ.card_type == CardType.SKELETON_KING:
+            self._ability_skeleton_king(champ)
+
+    def _ability_skeleton_king(self, champ: Entity) -> None:
+        """Soul Summoning: raise a swarm of skeletons around the King."""
+        sk_def = CARD_DEFS[CardType.SKELETONS]
+        count = 6
+        ring = [
+            (0.8, 0.0), (-0.8, 0.0), (0.0, 0.8), (0.0, -0.8),
+            (0.8, 0.8), (-0.8, -0.8),
+        ]
+        for i in range(count):
+            if len(self.entities) >= MAX_ENTITIES:
+                break
+            ox, oy = ring[i % len(ring)]
+            skel = entity_from_card(
+                eid=self._alloc_eid(),
+                owner=champ.owner,
+                card_def=sk_def,
+                x=champ.x + ox,
+                y=champ.y + oy,
+                hp_override=sk_def.spawn_hp,
+                dps_override=sk_def.spawn_dps,
+            )
+            self.entities.append(skel)
 
     def _spawn_card(
         self, player: int, card_def: CardDef, x: float, y: float
@@ -1051,6 +1125,15 @@ class CRGame:
                 if e.poison_timer < 0:
                     e.poison_timer = 0.0
                     e.poison_dps = 0.0
+            # Champion ability cooldown / active-effect timers
+            if e.ability_cooldown_timer > 0:
+                e.ability_cooldown_timer -= TICK_DURATION
+                if e.ability_cooldown_timer < 0:
+                    e.ability_cooldown_timer = 0.0
+            if e.ability_active_timer > 0:
+                e.ability_active_timer -= TICK_DURATION
+                if e.ability_active_timer < 0:
+                    e.ability_active_timer = 0.0
 
     def _process_death_spawns(self) -> None:
         """Handle death effects: death damage + spawn units (Golem→Golemites, etc.)."""
