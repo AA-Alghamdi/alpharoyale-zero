@@ -20,6 +20,10 @@ stub. RVAs/offsets are the working hypothesis for `libg.so` from CR v1.3.2.
 - [`data-embeddings-rl.md`](data-embeddings-rl.md) — how the game is mapped to tensors, the
   embedding design (stat-based card embeddings → unit → deck → state), the RL/search setup, and
   the data flywheel (which data source plays which role).
+- [`path-to-world-champion.md`](path-to-world-champion.md) — the staged program to build the
+  best player and scale toward beating the world champion: method commitments, phased plan with
+  go/no-go gates, how to measure progress (exploitability), compute staging, and honest-stop
+  criteria.
 - [`p0-engine-fix-spec.md`](p0-engine-fix-spec.md) — **the current P0 blocker**: a
   self-contained task spec to make Scroll boot a real battle (arena + towers) and step 200k
   ticks.
