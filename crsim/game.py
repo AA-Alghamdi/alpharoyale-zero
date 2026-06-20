@@ -308,14 +308,16 @@ class CRGame:
         self, player: int, card_def: CardDef, x: float, y: float
     ) -> None:
         """Spawn entities for a played card."""
-        # Pure damage spells
-        if card_def.kind == EntityKind.SPELL and card_def.spawn_count <= 0:
-            self._apply_spell(player, card_def, x, y)
-            return
-
-        if card_def.kind == EntityKind.SPELL and card_def.spawn_count > 0:
-            # Goblin barrel: spell that spawns units at target
-            self._apply_spell_spawn(player, card_def, x, y)
+        # Spells: route to unit-spawning only when the spell actually drops
+        # units with their own HP (e.g. Goblin Barrel). Everything else
+        # (Fireball, Zap, Arrows, Rocket, Freeze, ...) is a damage/effect
+        # spell. Most damage spells have spawn_count==1 by default, so routing
+        # on spawn_count alone misclassified them as unit-spawners.
+        if card_def.kind == EntityKind.SPELL:
+            if card_def.spawn_hp > 0 and card_def.spawn_count > 0:
+                self._apply_spell_spawn(player, card_def, x, y)
+            else:
+                self._apply_spell(player, card_def, x, y)
             return
 
         # Multi-spawn troops (Archers, Minions, Skeleton Army)
@@ -359,8 +361,12 @@ class CRGame:
         self, player: int, card_def: CardDef, x: float, y: float
     ) -> None:
         """Apply area-of-effect spell damage + secondary effects."""
-        radius = card_def.attack_range
-        damage = card_def.dps  # total damage stored in dps field for spells
+        # AoE radius lives in splash_radius for spells; attack_range is the
+        # cast/aim range (often 0 for point-and-click damage spells).
+        radius = card_def.splash_radius if card_def.splash_radius > 0 else card_def.attack_range
+        # Spell damage is the per-cast hit damage (damage_per_hit). DoT spells
+        # (Poison/Earthquake) additionally carry a per-second value in dps.
+        damage = card_def.damage_per_hit if card_def.damage_per_hit > 0 else card_def.dps
         ct = card_def.card_type
 
         # --- Freeze: no damage, applies freeze timer ---
@@ -388,7 +394,9 @@ class CRGame:
                 if e.alive and e.owner != player:
                     if e.distance_to_pos(x, y) <= radius:
                         e.poison_timer = 8.0
-                        e.poison_dps = damage / 8.0  # spread total over duration
+                        # dps holds the per-second poison damage; fall back to
+                        # spreading the hit damage across the duration.
+                        e.poison_dps = card_def.dps if card_def.dps > 0 else damage / 8.0
             return
 
         # --- Tornado: pull enemies toward center ---
@@ -489,6 +497,11 @@ class CRGame:
         if not entity.active:
             return -1
 
+        # An un-activated king tower does not attack (it only starts firing
+        # once it is activated: a princess tower falls or the king is hit).
+        if entity.is_king_tower and not self._king_tower_activated(entity.owner):
+            return -1
+
         best_eid = -1
         best_dist = float("inf")
         # Use sight_range for target acquisition
@@ -547,10 +560,21 @@ class CRGame:
                 (entity.owner == 0 and ty > RIVER_ROW_HI)
                 or (entity.owner == 1 and ty < RIVER_ROW_LO)
             )
-            if need_cross and RIVER_ROW_LO <= int(entity.y + 0.5) <= RIVER_ROW_HI + 1:
+            # Engage bridge-routing only while still on the near bank of the
+            # river (and within a few tiles of it). Once the unit steps onto
+            # the far bank it stops crossing and heads straight for its target;
+            # otherwise it keeps targeting the bridge row it already stands on
+            # and stalls forever.
+            if entity.owner == 0:
+                crossing = RIVER_ROW_LO - 3 <= entity.y <= RIVER_ROW_HI
+            else:
+                crossing = RIVER_ROW_LO <= entity.y <= RIVER_ROW_HI + 3
+            if need_cross and crossing:
+                # Aim for the FAR side of the river so the unit walks across.
+                far_row = RIVER_ROW_HI + 1 if entity.owner == 0 else RIVER_ROW_LO - 1
                 bridge_targets = [
-                    (BRIDGE_LEFT_COLS[0], RIVER_ROW_LO if entity.owner == 0 else RIVER_ROW_HI),
-                    (BRIDGE_RIGHT_COLS[0], RIVER_ROW_LO if entity.owner == 0 else RIVER_ROW_HI),
+                    (BRIDGE_LEFT_COLS[0], far_row),
+                    (BRIDGE_RIGHT_COLS[0], far_row),
                 ]
                 nearest_bridge = min(
                     bridge_targets,
