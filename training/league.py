@@ -169,8 +169,11 @@ class League:
         """Update win rate tracking after a game."""
         opp_id = opponent.agent_id
         old_wr = agent.win_rates.get(opp_id, 0.5)
-        # Exponential moving average
-        alpha = 2.0 / (min(agent.games_played, 100) + 1)
+        # Exponential moving average. Clamp alpha to <= 1 so the result stays a
+        # convex combination in [0, 1]: at games_played < 1 the raw 2/(n+1)
+        # formula exceeds 1, which would push win rates out of range and make
+        # PFSP priorities (1 - wr)^p negative.
+        alpha = min(1.0, 2.0 / (min(agent.games_played, 100) + 1))
         agent.win_rates[opp_id] = old_wr * (1 - alpha) + (1.0 if won else 0.0) * alpha
         agent.games_played += 1
 

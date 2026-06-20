@@ -179,6 +179,7 @@ def main() -> None:
             output_path=f"{args.checkpoint_dir}/value_warmstart.pt",
             epochs=args.warmstart_epochs,
             device=str(device),
+            model=model,  # warm-start the actual training model in place
         )
         logger.info("Value warm-start complete")
 
