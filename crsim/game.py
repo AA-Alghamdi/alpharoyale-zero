@@ -362,6 +362,27 @@ class CRGame:
         if card_def.kind == EntityKind.BUILDING:
             self.flow_cache.invalidate()
 
+    @staticmethod
+    def _crown_pct_adjust(target: Entity, damage: float, pct: float) -> float:
+        """Apply a signed crown_tower_damage_percent to a crown-tower target.
+
+        ``pct`` is a signed reduction: -70 means a crown tower takes 30% of the
+        damage. Non-tower targets are unaffected.
+        """
+        if pct and target.is_tower:
+            return damage * max(0.0, (100.0 + pct) / 100.0)
+        return damage
+
+    @classmethod
+    def _crown_adjusted(cls, target: Entity, damage: float, card_def: CardDef) -> float:
+        """Crown-tower reduction for a spell's damage."""
+        return cls._crown_pct_adjust(target, damage, card_def.crown_tower_damage_percent)
+
+    @classmethod
+    def _crown_adjusted_entity(cls, attacker: Entity, damage: float, target: Entity) -> float:
+        """Crown-tower reduction for a unit's own attacks (e.g. Miner -> 25%)."""
+        return cls._crown_pct_adjust(target, damage, attacker.crown_tower_damage_percent)
+
     def _apply_spell(
         self, player: int, card_def: CardDef, x: float, y: float
     ) -> None:
@@ -401,7 +422,8 @@ class CRGame:
                         e.poison_timer = 8.0
                         # dps holds the per-second poison damage; fall back to
                         # spreading the hit damage across the duration.
-                        e.poison_dps = card_def.dps if card_def.dps > 0 else damage / 8.0
+                        base_dps = card_def.dps if card_def.dps > 0 else damage / 8.0
+                        e.poison_dps = self._crown_adjusted(e, base_dps, card_def)
             return
 
         # --- Tornado: pull enemies toward center ---
@@ -421,7 +443,8 @@ class CRGame:
                         e.y = max(0.0, min(float(ARENA_H - 1), e.y))
                         # Light damage
                         if damage > 0:
-                            e.take_damage(damage * TICK_DURATION / 2.5)
+                            dmg = self._crown_adjusted(e, damage, card_def)
+                            e.take_damage(dmg * TICK_DURATION / 2.5)
             return
 
         # --- Heal Spirit / Heal: heal OWN troops ---
@@ -442,13 +465,13 @@ class CRGame:
             ]
             enemies.sort(key=lambda e: e.hp, reverse=True)
             for e in enemies[:3]:
-                e.take_damage(damage)
+                e.take_damage(self._crown_adjusted(e, damage, card_def))
         else:
             # Standard damage spell (Fireball, Arrows, Rocket, etc.)
             for e in self.entities:
                 if e.alive and e.owner != player:
                     if e.distance_to_pos(x, y) <= radius:
-                        e.take_damage(damage)
+                        e.take_damage(self._crown_adjusted(e, damage, card_def))
 
         # Apply spell secondary effects (knockback, stun, inferno reset)
         self._apply_spell_effects(player, card_def, x, y)
@@ -792,6 +815,7 @@ class CRGame:
                     'stuns': stuns,
                     'stun_duration': stun_dur,
                     'resets_inferno': resets,
+                    'crown_pct': entity.crown_tower_damage_percent,
                 })
             else:
                 # Melee / instant: deal damage immediately
@@ -807,9 +831,9 @@ class CRGame:
                             and other.owner != entity.owner
                             and other.distance_to(target) <= entity.splash_radius
                         ):
-                            other.take_damage(dmg)
+                            other.take_damage(self._crown_adjusted_entity(entity, dmg, other))
                 else:
-                    target.take_damage(dmg)
+                    target.take_damage(self._crown_adjusted_entity(entity, dmg, target))
 
             # Clear charge flag after hit
             entity.next_hit_is_charge = False
@@ -838,6 +862,7 @@ class CRGame:
                 if proj['resets_inferno'] and target.inferno_dps_max > 0:
                     target.inferno_ramp_time = 0.0
 
+                pct = proj.get('crown_pct', 0.0)
                 if proj['is_splash'] and proj['splash_radius'] > 0:
                     for other in self.entities:
                         if (
@@ -845,9 +870,9 @@ class CRGame:
                             and other.owner != proj['owner']
                             and other.distance_to(target) <= proj['splash_radius']
                         ):
-                            other.take_damage(dmg)
+                            other.take_damage(self._crown_pct_adjust(other, dmg, pct))
                 else:
-                    target.take_damage(dmg)
+                    target.take_damage(self._crown_pct_adjust(target, dmg, pct))
             else:
                 # Still in flight
                 proj['x'] += (dx / dist) * travel
