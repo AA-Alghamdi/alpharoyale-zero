@@ -49,14 +49,20 @@ TICKS_PER_SECOND: int = 20   # 1.0 / TICK_DURATION
 DECISION_INTERVAL: int = 10  # agent decides every 0.5 seconds (10 ticks × 50ms)
 
 REGULAR_TIME_TICKS: int = 3600  # 3 minutes = 180s / 0.05
-OVERTIME_TICKS: int = 2400       # 2 minutes = 120s / 0.05 (double elixir)
+OVERTIME_TICKS: int = 2400       # 2 minutes = 120s / 0.05 (triple elixir)
 SUDDEN_DEATH_TICKS: int = 1200   # 1 minute = 60s / 0.05 (triple elixir)
+
+# Double Elixir begins in the last 60s of regulation (the 2:00 mark of a 3:00
+# match), matching the real game: 1x for 0:00-2:00, 2x for 2:00-3:00.
+DOUBLE_ELIXIR_START_TICKS: int = REGULAR_TIME_TICKS - 1200  # tick 2400 = 120s
 
 TOTAL_MAX_TICKS: int = REGULAR_TIME_TICKS + OVERTIME_TICKS + SUDDEN_DEATH_TICKS
 
-# Elixir regeneration: 1 elixir per 2.8 s in normal time
+# Elixir regeneration: 1 elixir per 2.8 s in normal time. The real game ramps
+# 1x -> 2x (last minute of regulation) -> 3x (overtime / sudden death).
 ELIXIR_REGEN_NORMAL: float = TICK_DURATION / 2.8  # ~0.1786 per tick
-ELIXIR_REGEN_OVERTIME: float = ELIXIR_REGEN_NORMAL * 2.0
+ELIXIR_REGEN_DOUBLE: float = ELIXIR_REGEN_NORMAL * 2.0
+ELIXIR_REGEN_OVERTIME: float = ELIXIR_REGEN_NORMAL * 3.0
 ELIXIR_REGEN_SUDDEN: float = ELIXIR_REGEN_NORMAL * 3.0
 
 STARTING_ELIXIR: float = 5.0

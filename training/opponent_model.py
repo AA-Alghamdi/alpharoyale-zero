@@ -17,7 +17,6 @@ Inspired by:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -118,7 +117,8 @@ class ElixirTracker:
 
     We know:
     - Starting elixir: 5
-    - Regen rate: 1/2.8s normal, 1/1.4s overtime, 1/0.93s sudden death
+    - Regen rate ramps 1x -> 2x -> 3x: 1/2.8s normal, 1/1.4s double elixir (last
+      minute of regulation), 1/0.93s overtime & sudden death
     - When opponent plays a card, they spent that card's elixir cost
     """
 
@@ -126,10 +126,11 @@ class ElixirTracker:
     last_update_tick: int = 0
     confidence: float = 1.0  # decreases over time without observations
 
-    # Tick durations for different phases
-    ticks_per_elixir_normal: float = 2.8 / 0.05  # 56 Rust ticks per elixir
-    ticks_per_elixir_overtime: float = 1.4 / 0.05  # 28 ticks
-    ticks_per_elixir_sudden: float = 0.93 / 0.05  # ~19 ticks
+    # Tick durations for different phases (kept in sync with crsim.constants).
+    ticks_per_elixir_normal: float = 2.8 / 0.05  # 1x: 56 ticks per elixir
+    ticks_per_elixir_double: float = 1.4 / 0.05  # 2x: 28 ticks (double elixir)
+    ticks_per_elixir_overtime: float = 0.93 / 0.05  # 3x: ~19 ticks
+    ticks_per_elixir_sudden: float = 0.93 / 0.05  # 3x: ~19 ticks
 
     def observe_play(self, card_cost: int, tick: int, phase: str = "normal") -> None:
         """Update elixir estimate when opponent plays a card."""
@@ -145,7 +146,6 @@ class ElixirTracker:
         """Update elixir estimate at current tick (without observing a play)."""
         self._apply_regen(tick, phase)
         # Confidence decays when we don't observe plays
-        elapsed = tick - self.last_update_tick
         self.confidence *= 0.999  # slow decay
 
     def _apply_regen(self, tick: int, phase: str) -> None:
@@ -153,7 +153,9 @@ class ElixirTracker:
         if elapsed <= 0:
             return
 
-        if phase == "overtime":
+        if phase in ("double", "double_elixir"):
+            ticks_per = self.ticks_per_elixir_double
+        elif phase == "overtime":
             ticks_per = self.ticks_per_elixir_overtime
         elif phase == "sudden_death":
             ticks_per = self.ticks_per_elixir_sudden

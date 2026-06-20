@@ -17,7 +17,8 @@ import numpy as np
 import torch
 
 from crsim.cards import CARD_DEFS, CardType
-from crsim.game import Action, CRGame
+from crsim.constants import DOUBLE_ELIXIR_START_TICKS
+from crsim.game import Action, CRGame, GamePhase
 from mcts.gumbel_search import GumbelConfig, GumbelMuZeroSearch, _action_id_to_action
 from model.features import (
     encode_state,
@@ -31,6 +32,18 @@ from training.opponent_model import CardTracker, ElixirTracker
 from training.replay_buffer import ReplayBuffer, ReplayEntry
 
 logger = logging.getLogger(__name__)
+
+
+def _phase_str(game: CRGame) -> str:
+    """Phase string for ElixirTracker, including the in-regulation 2x window."""
+    if game.phase == GamePhase.OVERTIME:
+        return "overtime"
+    if game.phase == GamePhase.SUDDEN_DEATH:
+        return "sudden_death"
+    if game.tick_count >= DOUBLE_ELIXIR_START_TICKS:
+        return "double"
+    return "normal"
+
 
 DEFAULT_CARD_POOL: list[CardType] = list(CardType)
 DECK_SIZE = 8
@@ -238,10 +251,10 @@ class SelfPlayWorkerV2:
                         card_trackers[opponent].observe_play(
                             int(played_card_type), game.tick_count
                         )
-                        cost = CARD_DEFS.get(played_card_type)
-                        if cost is not None:
+                        card_def = CARD_DEFS.get(played_card_type)
+                        if card_def is not None:
                             elixir_trackers[opponent].observe_play(
-                                int(played_card_type), cost.cost, game.tick_count
+                                card_def.cost, game.tick_count, _phase_str(game)
                             )
 
             game.step(actions_for_step)
