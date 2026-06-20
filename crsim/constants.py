@@ -126,8 +126,12 @@ SPELL_TOWER_DAMAGE_FACTOR: float = 0.35  # spells do 35% damage to towers
 # Action space
 # ---------------------------------------------------------------------------
 NUM_HAND_SLOTS: int = 4
-ACTION_SPACE_SIZE: int = NUM_HAND_SLOTS * ARENA_W * ARENA_H + 1  # +1 for WAIT
-WAIT_ACTION: int = ACTION_SPACE_SIZE - 1
+_PLACEMENT_ACTION_COUNT: int = NUM_HAND_SLOTS * ARENA_W * ARENA_H
+# One extra discrete action activates a deployed champion's ability (CR allows at
+# most one champion per deck and one on the field, so a single action suffices).
+ABILITY_ACTION: int = _PLACEMENT_ACTION_COUNT
+WAIT_ACTION: int = _PLACEMENT_ACTION_COUNT + 1
+ACTION_SPACE_SIZE: int = _PLACEMENT_ACTION_COUNT + 2  # placements + ABILITY + WAIT
 
 # ---------------------------------------------------------------------------
 # State representation

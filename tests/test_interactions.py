@@ -426,3 +426,55 @@ def test_golem_spawns_authentic_golemites():
     assert golem.death_spawn_count == 2
     assert golem.death_spawn_hp == pytest.approx(1040.0, rel=0.02)
     assert golem.death_spawn_dps == pytest.approx(19.8, rel=0.05)
+
+
+# ---------------------------------------------------------------------------
+# Champion abilities (manually activated via the ABILITY action)
+# ---------------------------------------------------------------------------
+
+
+def test_ability_action_only_valid_with_ready_champion():
+    from crsim.constants import ABILITY_ACTION
+
+    g = fresh_game()
+    # No champion on the field: the ability action is masked off.
+    assert not g.get_valid_actions_mask(0)[ABILITY_ACTION]
+
+    champ = spawn(g, CardType.SKELETON_KING, 0, 9.0, 6.0)
+    g.players[0].elixir = 10.0
+    assert g.get_valid_actions_mask(0)[ABILITY_ACTION]
+
+    # An enemy champion does not enable player 0's ability.
+    assert not g.get_valid_actions_mask(1)[ABILITY_ACTION]
+    assert champ.is_champion
+
+
+def test_skeleton_king_ability_summons_skeletons_and_costs_elixir():
+    g = fresh_game()
+    spawn(g, CardType.SKELETON_KING, 0, 9.0, 6.0)
+    g.players[0].elixir = 8.0
+
+    before = len(living(g, 0, CardType.SKELETONS))
+    g.apply_action(Action(player=0, ability=True))
+    after = len(living(g, 0, CardType.SKELETONS))
+
+    assert after - before == 6  # Soul Summoning raises 6 skeletons
+    assert g.players[0].elixir == pytest.approx(6.0)  # 8 - 2 ability cost
+
+
+def test_champion_ability_respects_cooldown_and_cost():
+    from crsim.constants import ABILITY_ACTION
+
+    g = fresh_game()
+    spawn(g, CardType.SKELETON_KING, 0, 9.0, 6.0)
+    g.players[0].elixir = 8.0
+    g.apply_action(Action(player=0, ability=True))
+
+    # On cooldown immediately after use -> masked off even with elixir to spare.
+    assert not g.get_valid_actions_mask(0)[ABILITY_ACTION]
+    # A second activation while on cooldown spawns nothing and costs nothing.
+    elx = g.players[0].elixir
+    n = len(living(g, 0, CardType.SKELETONS))
+    g.apply_action(Action(player=0, ability=True))
+    assert len(living(g, 0, CardType.SKELETONS)) == n
+    assert g.players[0].elixir == pytest.approx(elx)

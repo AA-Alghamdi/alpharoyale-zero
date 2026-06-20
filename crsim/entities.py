@@ -44,6 +44,13 @@ class Entity:
     # Crown-tower damage modifier (signed percent; -75 => tower takes 25%)
     crown_tower_damage_percent: float = 0.0
 
+    # Champion ability (manually activated)
+    is_champion: bool = False
+    ability_cost: int = 0
+    ability_cooldown: float = 0.0  # max seconds between activations
+    ability_cooldown_timer: float = 0.0  # remaining cooldown; <=0 => ready
+    ability_active_timer: float = 0.0  # remaining duration of an active effect
+
     # Building fields
     is_building: bool = False
     building_timer: float = 0.0  # remaining lifetime (seconds)
@@ -243,6 +250,9 @@ def entity_from_card(
         death_damage=card_def.death_damage,
         death_damage_radius=card_def.death_damage_radius,
         crown_tower_damage_percent=card_def.crown_tower_damage_percent,
+        is_champion=card_def.is_champion,
+        ability_cost=card_def.ability_cost,
+        ability_cooldown=card_def.ability_cooldown,
     )
 
 

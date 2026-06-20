@@ -184,6 +184,12 @@ class CardDef:
     has_evolution: bool = False
     is_champion: bool = False
     has_hero: bool = False
+    # Champion ability (manually activated). ability_cost is the extra elixir to
+    # activate; ability_cooldown is seconds before it can fire again; values are
+    # hand-curated from live-game data since the CSV export leaves them at 0.
+    ability_cost: int = 0
+    ability_cooldown: float = 0.0
+    ability_duration: float = 0.0
     # Death spawn
     death_spawn_card: CardType | None = None
     death_spawn_count: int = 0
@@ -1428,6 +1434,9 @@ CARD_DEFS: dict[CardType, CardDef] = {
         splash_radius=1.3,
         collision_radius=1.0,
         is_champion=True,
+        # "Soul Summoning": for 2 elixir the King raises a swarm of skeletons.
+        ability_cost=2,
+        ability_cooldown=16.0,
     ),
     CardType.ARCHER_QUEEN: CardDef(
         card_type=CardType.ARCHER_QUEEN,

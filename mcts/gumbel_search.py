@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from crsim.constants import ACTION_SPACE_SIZE, ARENA_H, ARENA_W, WAIT_ACTION
+from crsim.constants import ABILITY_ACTION, ACTION_SPACE_SIZE, ARENA_H, ARENA_W, WAIT_ACTION
 from crsim.game import Action, CRGame
 from model.features import encode_state, extract_entity_features
 
@@ -330,6 +330,8 @@ def _action_id_to_action(action_id: int, player: int) -> Action:
     """Convert flat action id to Action."""
     if action_id == WAIT_ACTION:
         return Action(player=player, hand_slot=-1)
+    if action_id == ABILITY_ACTION:
+        return Action(player=player, hand_slot=-1, ability=True)
     slot = action_id // (ARENA_W * ARENA_H)
     remainder = action_id % (ARENA_W * ARENA_H)
     x = remainder // ARENA_H
