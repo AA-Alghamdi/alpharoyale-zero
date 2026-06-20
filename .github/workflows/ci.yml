@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  # Run on every PR regardless of base so stacked PRs (R1 onto R0, etc.) are
+  # gated too, not only PRs targeting main.
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install "ruff>=0.1.0"
+      - run: ruff check .
+
+  test:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # CPU-only PyTorch keeps the install small; the test suite never touches a GPU.
+      - name: Install CPU PyTorch
+        run: pip install "torch>=2.1.0" --index-url https://download.pytorch.org/whl/cpu
+      # Runtime subset the test suite imports (avoids the heavy ray/tensorboard
+      # training-only deps). Package installed with --no-deps to expose the
+      # crsim/model/mcts/... namespaces without re-resolving dependencies.
+      - name: Install test dependencies
+        run: |
+          pip install numpy pyyaml aiohttp tqdm "pytest>=7.4.0"
+          pip install -e . --no-deps
+      - name: Run tests
+        run: pytest tests/ -q
