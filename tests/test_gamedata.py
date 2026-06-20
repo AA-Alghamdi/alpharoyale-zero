@@ -16,7 +16,7 @@ from crsim.gamedata import GameData, scale_stat
 def test_overlay_is_active():
     # The bulk of the roster is sourced from authentic data (the newest cards
     # absent from this snapshot keep hand-coded values).
-    assert len(AUTHENTIC_STAT_REPORT) >= 60
+    assert len(AUTHENTIC_STAT_REPORT) >= 85
 
 
 def test_scale_stat_is_exact_per_rarity():
@@ -75,3 +75,35 @@ def test_gamedata_loads_full_roster():
     assert game.spells["Poison"]["life_duration"] > 0
     # Exact level scaling table is present.
     assert game.level_multiplier("Common") == pytest.approx(2.56)
+
+
+def test_plural_skey_troops_are_overlaid():
+    # Multi-unit troops carry a plural sc_key ("Goblins") but the stat row is
+    # keyed by the singular entity ("Goblin"); the singular fallback must match.
+    from crsim.gamedata import authentic_core_fields
+    game = GameData()
+    for ct in (
+        CardType.GOBLINS,
+        CardType.BARBARIANS,
+        CardType.SKELETONS,
+        CardType.BATS,
+        CardType.MINIONS,
+        CardType.SKELETON_ARMY,
+        CardType.MINION_HORDE,
+    ):
+        assert authentic_core_fields(game, ct) is not None, ct.name
+
+
+def test_skeleton_army_units_scale_by_entity_rarity():
+    # Skeleton Army is an Epic card but spawns Common Skeletons; per-unit HP must
+    # match the Skeletons card, not scale by the card's Epic tier.
+    assert CARD_DEFS[CardType.SKELETON_ARMY].hp == pytest.approx(
+        CARD_DEFS[CardType.SKELETONS].hp
+    )
+
+
+def test_compound_cards_keep_air_ground_targeting():
+    # Ram Rider / Goblin Giant ride a building-targeting mount, but the rider hits
+    # air+ground. The single-entity model must not be flipped to BUILDINGS.
+    assert CARD_DEFS[CardType.RAM_RIDER].target_mode.name == "AIR_GROUND"
+    assert CARD_DEFS[CardType.GOBLIN_GIANT].target_mode.name == "AIR_GROUND"
