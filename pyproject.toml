@@ -25,7 +25,12 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["crsim*", "model*", "mcts*", "training*", "eval*", "data*", "scroll_bridge*"]
+include = ["crsim*", "model*", "mcts*", "training*", "eval*", "data*", "scroll_bridge*", "verification*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "cross_engine: opt-in tests that require a local oracle clone (samdickson22/clash-simulator); auto-skipped otherwise",
+]
 
 [tool.ruff]
 line-length = 100
