@@ -31,6 +31,7 @@ import torch
 
 from crsim.cards import CardType
 from crsim.game import CRGame
+from eval.baseline_agents import winrate_to_elo
 from mcts.gumbel_search import GumbelConfig, GumbelMuZeroSearch
 from model.transformer_net import CRStarNet
 from training.curriculum import CurriculumManager
@@ -39,6 +40,7 @@ from training.league import AgentType, League, LeagueConfig
 from training.replay_buffer import ReplayBuffer
 from training.self_play_v2 import SelfPlayV2Config, SelfPlayWorkerV2
 from training.trainer_v2 import TrainerV2
+from training.vectorized_self_play import VectorizedSelfPlayWorker
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +151,43 @@ def main() -> None:
         help="Fill the replay buffer to this many positions before training",
     )
 
+    # Vectorized self-play (the GPU throughput lever)
+    parser.add_argument(
+        "--vectorized-envs", type=int, default=0,
+        help=(
+            "Run self-play with N games stepped in lockstep, batching their NN "
+            "evals into single forward passes. 0 = sequential SelfPlayWorkerV2. "
+            "Set to the largest batch the GPU fits (e.g. 64-256) to saturate it."
+        ),
+    )
+    parser.add_argument(
+        "--max-eval-batch", type=int, default=512,
+        help="Max states per batched NN forward pass during vectorized search",
+    )
+
+    # Warm-start from a previously saved replay buffer
+    parser.add_argument(
+        "--warmstart-buffer", type=str, default=None,
+        help="Path to a saved replay buffer (.npz) to preload before self-play",
+    )
+    parser.add_argument(
+        "--save-buffer", type=str, default=None,
+        help="On exit, save the replay buffer to this .npz path (for warm-start)",
+    )
+
+    # Smoke test: run the whole pipeline end-to-end at tiny scale on CPU.
+    parser.add_argument(
+        "--smoke-test", action="store_true",
+        help=(
+            "Tiny end-to-end run (tiny model, few vectorized games, a handful of "
+            "train steps) to prove the GPU-scale path is launch-ready on CPU."
+        ),
+    )
+
     args = parser.parse_args()
+
+    if args.smoke_test:
+        _apply_smoke_test_defaults(args)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -160,32 +198,36 @@ def main() -> None:
     logger.info("Device: %s", device)
 
     # === Phase 0: Create model ===
-    model = CRStarNet(
-        spatial_blocks=10,
-        spatial_filters=128,
-        core_hidden=512,
-        core_layers=2,
-    )
+    model = _build_model(args)
     n_params = count_parameters(model)
     logger.info("CRStarNet created: %.1fM parameters", n_params / 1e6)
 
     # === Phase 1: Imitation warm-start (optional) ===
     if args.warmstart_data:
         logger.info("=== Phase 1: Imitation warm-start ===")
-        from training.imitation import train_value_warmstart
+        from training.imitation import ImitationConfig, train_imitation
 
-        train_value_warmstart(
-            battles_path=args.warmstart_data,
-            output_path=f"{args.checkpoint_dir}/value_warmstart.pt",
-            epochs=args.warmstart_epochs,
+        # warmstart-data is the imitation data directory (matchups.csv / replays/).
+        train_imitation(
+            model=model,
+            config=ImitationConfig(
+                data_dir=args.warmstart_data,
+                num_epochs=args.warmstart_epochs,
+            ),
             device=str(device),
         )
-        logger.info("Value warm-start complete")
+        logger.info("Imitation warm-start complete")
 
     # === Phase 2: Self-play training ===
     logger.info("=== Phase 2: Self-play training with Gumbel MuZero ===")
 
     replay_buffer = ReplayBuffer(max_size=args.buffer_size)
+
+    # Warm-start the buffer from a previous run's self-play data, if provided.
+    if args.warmstart_buffer:
+        logger.info("Loading warm-start replay buffer: %s", args.warmstart_buffer)
+        loaded = replay_buffer.load(args.warmstart_buffer)
+        logger.info("Warm-start buffer loaded: %d positions", loaded)
 
     gumbel_cfg = GumbelConfig(
         n_simulations=args.gumbel_sims,
@@ -238,6 +280,73 @@ def main() -> None:
         )
 
 
+def _build_model(args: argparse.Namespace) -> CRStarNet:
+    """Construct the network (tiny for smoke tests, full otherwise)."""
+    if getattr(args, "smoke_test", False):
+        return CRStarNet(
+            spatial_blocks=1, spatial_filters=16, core_hidden=32, core_layers=1,
+        )
+    return CRStarNet(
+        spatial_blocks=10, spatial_filters=128, core_hidden=512, core_layers=2,
+    )
+
+
+def _apply_smoke_test_defaults(args: argparse.Namespace) -> None:
+    """Shrink every knob so the full pipeline runs end-to-end on CPU in seconds."""
+    args.distributed = False
+    args.device = "cpu"
+    args.buffer_size = min(args.buffer_size, 5_000)
+    args.batch_size = min(args.batch_size, 32)
+    args.max_steps = min(args.max_steps, 20)
+    args.warmup_positions = min(args.warmup_positions, 64)
+    args.self_play_games_per_batch = min(args.self_play_games_per_batch, 4)
+    args.gumbel_sims = min(args.gumbel_sims, 4)
+    args.eval_games = min(args.eval_games, 4)
+    args.eval_interval = 1
+    args.decision_interval = max(args.decision_interval, 25)
+    args.max_game_ticks = args.max_game_ticks or 400
+    if args.vectorized_envs <= 0:
+        args.vectorized_envs = 4
+    logger.info("Smoke-test mode: tiny model + %d vectorized games", args.vectorized_envs)
+
+
+def _make_self_play_worker(
+    model: CRStarNet,
+    replay_buffer: ReplayBuffer,
+    sp_cfg: SelfPlayV2Config,
+    args: argparse.Namespace,
+    device: torch.device,
+    worker_id: int = 0,
+    curriculum: CurriculumManager | None = None,
+    randomizer: DomainRandomizer | None = None,
+    league: League | None = None,
+):
+    """Vectorized worker when --vectorized-envs > 0, else the sequential one."""
+    if args.vectorized_envs > 0:
+        return VectorizedSelfPlayWorker(
+            model=model,
+            replay_buffer=replay_buffer,
+            config=sp_cfg,
+            device=device,
+            worker_id=worker_id,
+            n_envs=args.vectorized_envs,
+            max_eval_batch=args.max_eval_batch,
+            curriculum=curriculum,
+            randomizer=randomizer,
+            league=league,
+        )
+    return SelfPlayWorkerV2(
+        model=model,
+        replay_buffer=replay_buffer,
+        config=sp_cfg,
+        device=device,
+        worker_id=worker_id,
+        curriculum=curriculum,
+        randomizer=randomizer,
+        league=league,
+    )
+
+
 def _run_single_gpu(
     model: CRStarNet,
     replay_buffer: ReplayBuffer,
@@ -251,14 +360,9 @@ def _run_single_gpu(
     main_agent=None,
 ) -> None:
     """Single-GPU training: alternate self-play and training."""
-    worker = SelfPlayWorkerV2(
-        model=model,
-        replay_buffer=replay_buffer,
-        config=sp_cfg,
-        device=device,
-        worker_id=0,
-        curriculum=curriculum,
-        randomizer=randomizer,
+    worker = _make_self_play_worker(
+        model, replay_buffer, sp_cfg, args, device,
+        worker_id=0, curriculum=curriculum, randomizer=randomizer, league=league,
     )
 
     logger.info("Starting single-GPU training loop")
@@ -293,9 +397,10 @@ def _run_single_gpu(
                 model, device, n_games=args.eval_games,
                 decision_interval=args.decision_interval,
             )
+            elo_estimate = winrate_to_elo(win_rate)
             logger.info(
-                "Eval @ step %d: %.1f%% win rate vs random",
-                trainer.step_count, win_rate * 100,
+                "Eval @ step %d: %.1f%% win rate vs random | Elo ~%.0f",
+                trainer.step_count, win_rate * 100, elo_estimate,
             )
 
             # Update curriculum based on performance
@@ -319,10 +424,25 @@ def _run_single_gpu(
             steps_since_eval = 0
 
     trainer.save_checkpoint(tag="final")
+
+    # Always take a final league snapshot so the frozen pool is non-empty.
+    if league is not None and main_agent is not None:
+        final_ckpt = f"{args.checkpoint_dir}/league_final.pt"
+        torch.save(model.state_dict(), final_ckpt)
+        league.snapshot_agent(main_agent, final_ckpt)
+        logger.info("League snapshots: %d frozen", len(league.frozen_agents))
+
+    if args.save_buffer:
+        replay_buffer.save(args.save_buffer)
+
+    final_games = 100 if not args.smoke_test else args.eval_games
     final_wr = evaluate_vs_random(
-        model, device, n_games=100, decision_interval=args.decision_interval,
+        model, device, n_games=final_games, decision_interval=args.decision_interval,
     )
-    logger.info("Training complete! Final win rate vs random: %.1f%%", final_wr * 100)
+    logger.info(
+        "Training complete! Final win rate vs random: %.1f%% | Elo ~%.0f",
+        final_wr * 100, winrate_to_elo(final_wr),
+    )
 
 
 def _run_distributed(
@@ -352,7 +472,14 @@ def _run_distributed(
 
     @ray.remote(num_gpus=1)
     class SelfPlayActor:
-        def __init__(self, model_state: dict, config: SelfPlayV2Config, worker_id: int) -> None:
+        def __init__(
+            self,
+            model_state: dict,
+            config: SelfPlayV2Config,
+            worker_id: int,
+            n_envs: int = 0,
+            max_eval_batch: int = 512,
+        ) -> None:
             self.device = torch.device("cuda:0")
             self.model = CRStarNet()
             self.model.load_state_dict(model_state)
@@ -360,22 +487,31 @@ def _run_distributed(
             self.model.eval()
 
             self.buffer = ReplayBuffer(max_size=50_000)
-            self.worker = SelfPlayWorkerV2(
-                model=self.model,
-                replay_buffer=self.buffer,
-                config=config,
-                device=self.device,
-                worker_id=worker_id,
-            )
+            if n_envs > 0:
+                # Batch each actor's NN evals so a whole GPU isn't wasted
+                # running one forward pass per game state at a time.
+                self.worker = VectorizedSelfPlayWorker(
+                    model=self.model,
+                    replay_buffer=self.buffer,
+                    config=config,
+                    device=self.device,
+                    worker_id=worker_id,
+                    n_envs=n_envs,
+                    max_eval_batch=max_eval_batch,
+                )
+            else:
+                self.worker = SelfPlayWorkerV2(
+                    model=self.model,
+                    replay_buffer=self.buffer,
+                    config=config,
+                    device=self.device,
+                    worker_id=worker_id,
+                )
 
-        def generate_games(self, n_games: int = 16) -> list:
+        def generate_games(self, n_games: int = 16) -> dict:
             self.worker.run_batch(n_games=n_games)
-            # Collect all entries from local buffer
-            entries = []
-            while len(self.buffer) > 0:
-                batch = self.buffer.sample(min(len(self.buffer), 1000))
-                entries.append(batch)
-            return entries
+            # Drain the full local buffer (all fields, no loss/duplication).
+            return self.buffer.drain_all()
 
         def update_model(self, state_dict: dict) -> None:
             self.model.load_state_dict(state_dict)
@@ -384,7 +520,11 @@ def _run_distributed(
     # Launch self-play actors
     model_state = {k: v.cpu() for k, v in model.state_dict().items()}
     actors = [
-        SelfPlayActor.remote(model_state, sp_cfg, worker_id=i)
+        SelfPlayActor.remote(
+            model_state, sp_cfg, worker_id=i,
+            n_envs=args.vectorized_envs,
+            max_eval_batch=args.max_eval_batch,
+        )
         for i in range(n_play_gpus)
     ]
 
@@ -393,20 +533,28 @@ def _run_distributed(
     # Main training loop
     def collect_data() -> None:
         """Background thread: collect data from self-play actors."""
+        from training.replay_buffer import ReplayEntry
         while trainer.step_count < args.max_steps:
             futures = [actor.generate_games.remote(16) for actor in actors]
             results = ray.get(futures)
-            for batches in results:
-                for batch in batches:
-                    spatial, scalar, policy, value = batch
-                    for i in range(len(spatial)):
-                        from training.replay_buffer import ReplayEntry
-                        replay_buffer.push(ReplayEntry(
-                            spatial=spatial[i],
-                            scalar=scalar[i],
-                            policy=policy[i],
-                            value=float(value[i]),
-                        ))
+            for data in results:
+                if not data:
+                    continue
+                n = len(data["value"])
+                for i in range(n):
+                    # Preserve entity features + auxiliary targets the model
+                    # trains on (previously silently dropped here).
+                    replay_buffer.push(ReplayEntry(
+                        spatial=data["spatial"][i],
+                        scalar=data["scalar"][i],
+                        policy=data["policy"][i],
+                        value=float(data["value"][i]),
+                        entity_features=data["entity_features"][i],
+                        entity_mask=data["entity_mask"][i],
+                        crown_target=int(data["crown_target"][i]),
+                        tower_hp_target=data["tower_hp_target"][i],
+                        game_length_target=float(data["game_length_target"][i]),
+                    ))
 
             # Sync model weights to actors
             state = trainer.get_model_state()
