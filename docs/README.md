@@ -17,6 +17,9 @@ stub. RVAs/offsets are the working hypothesis for `libg.so` from CR v1.3.2.
     (44+116), action space (2305), masking, perspective flip, reward.
   - [`L5-search-and-learning.md`](layers/L5-search-and-learning.md) — MCTS family, networks,
     training/league, evaluation.
+- [`data-embeddings-rl.md`](data-embeddings-rl.md) — how the game is mapped to tensors, the
+  embedding design (stat-based card embeddings → unit → deck → state), the RL/search setup, and
+  the data flywheel (which data source plays which role).
 - [`p0-engine-fix-spec.md`](p0-engine-fix-spec.md) — **the current P0 blocker**: a
   self-contained task spec to make Scroll boot a real battle (arena + towers) and step 200k
   ticks.
