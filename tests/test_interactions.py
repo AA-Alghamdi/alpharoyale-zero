@@ -540,6 +540,90 @@ def test_mighty_miner_bomb_explodes_after_delay():
     assert len(g.pending_bombs) == 0
 
 
+# ---------------------------------------------------------------------------
+# Evolutions (cycle charging + evolved deployment effects)
+# ---------------------------------------------------------------------------
+
+
+def test_evolution_cycles_before_deploying_evolved():
+    from crsim.evolutions import EVOLUTION_DEFS
+
+    g = fresh_game()
+    ps = g.players[0]
+    ct = CardType.KNIGHT
+    ps.evo_slots = [ct]
+    ps.evo_charge = {}
+    required = EVOLUTION_DEFS[ct].cycles  # Knight needs 2 cycles
+    assert required == 2
+
+    # Must cycle `required` times before an evolved deployment.
+    results = [g._consume_evolution(ps, ct) for _ in range(required + 2)]
+    assert results == [False, False, True, False]
+
+
+def test_non_evo_slot_card_never_evolves():
+    g = fresh_game()
+    ps = g.players[0]
+    ps.evo_slots = [CardType.KNIGHT]
+    # A card not in the evo slots never evolves no matter how often it's played.
+    assert not any(g._consume_evolution(ps, CardType.ARCHERS) for _ in range(5))
+
+
+def test_evolved_knight_gets_one_shot_damage_shield():
+    g = fresh_game()
+    g._spawn_card(0, CARD_DEFS[CardType.KNIGHT], 9.0, 8.0, evolved=True)
+    knight = living(g, 0, CardType.KNIGHT)[0]
+    assert knight.is_evolved
+    assert knight.evo_shield
+
+    hp0 = knight.hp
+    knight.take_damage(100.0)
+    assert (hp0 - knight.hp) == pytest.approx(40.0)  # 60% reduced first hit
+    assert not knight.evo_shield  # shield consumed
+    knight.take_damage(100.0)
+    assert (hp0 - knight.hp) == pytest.approx(140.0)  # subsequent hits are full
+
+
+def test_evo_shield_not_consumed_by_poison_tick():
+    # The Knight one-shot evo shield must survive incidental DoT (poison) and
+    # only be spent on a real attack.
+    g = fresh_game()
+    g._spawn_card(0, CARD_DEFS[CardType.KNIGHT], 9.0, 8.0, evolved=True)
+    knight = living(g, 0, CardType.KNIGHT)[0]
+    assert knight.evo_shield
+
+    knight.take_damage(0.5, is_dot=True)  # a poison tick
+    assert knight.evo_shield  # still up
+
+    hp0 = knight.hp
+    knight.take_damage(100.0)  # a real hit
+    assert (hp0 - knight.hp) == pytest.approx(40.0)  # 60% reduced
+    assert not knight.evo_shield  # now consumed
+
+
+def test_spell_cards_not_selected_as_evo_slots():
+    # Spell evolutions deploy identically to their base here, so they must not
+    # be auto-selected as evo slots (which would silently burn evo charges).
+    from crsim.evolutions import EVOLUTION_DEFS
+
+    assert CardType.ZAP in EVOLUTION_DEFS  # ZAP has an evolution in the data
+    deck = [CardType.ZAP, CardType.KNIGHT, CardType.ARCHERS]
+    slots = CRGame._default_evo_slots(deck)
+    assert CardType.ZAP not in slots  # spell skipped
+    assert CardType.KNIGHT in slots  # troop evolution still picked
+
+
+def test_evolved_barbarians_have_boosted_hp():
+    g = fresh_game()
+    g._spawn_card(0, CARD_DEFS[CardType.BARBARIANS], 9.0, 8.0, evolved=False)
+    base = living(g, 0, CardType.BARBARIANS)[0].max_hp
+    g2 = fresh_game()
+    g2._spawn_card(0, CARD_DEFS[CardType.BARBARIANS], 9.0, 8.0, evolved=True)
+    evo = living(g2, 0, CardType.BARBARIANS)[0]
+    assert evo.is_evolved
+    assert evo.max_hp == pytest.approx(base * 1.10)  # +10% HP evolution
+
+
 def test_little_prince_summons_guardienne():
     g = fresh_game()
     spawn(g, CardType.LITTLE_PRINCE, 0, 9.0, 8.0)

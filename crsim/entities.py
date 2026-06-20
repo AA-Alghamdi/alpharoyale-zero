@@ -56,6 +56,11 @@ class Entity:
     damage_reduction_timer: float = 0.0  # while >0 incoming damage is scaled
     damage_reduction_mult: float = 1.0  # incoming-damage multiplier (e.g. 0.2 = 20%)
 
+    # Evolution
+    is_evolved: bool = False
+    evo_shield: bool = False  # one-shot damage shield (Knight evo); lost on first hit
+    evo_shield_mult: float = 1.0  # incoming-damage multiplier while the shield holds
+
     # Building fields
     is_building: bool = False
     building_timer: float = 0.0  # remaining lifetime (seconds)
@@ -180,11 +185,20 @@ class Entity:
         self.slow_timer = max(self.slow_timer, duration)
         self.slow_factor = factor
 
-    def take_damage(self, damage: float) -> float:
-        """Apply damage, considering shield. Returns actual HP damage dealt."""
+    def take_damage(self, damage: float, is_dot: bool = False) -> float:
+        """Apply damage, considering shield. Returns actual HP damage dealt.
+
+        ``is_dot`` marks incidental damage-over-time (poison ticks, damage
+        zones). Such ticks do not consume the Knight-evolution one-shot shield,
+        which is meant to absorb a real attack rather than a fractional tick.
+        """
         # Ability damage reduction (Monk's Pensive Protection) scales the hit.
         if self.damage_reduction_timer > 0:
             damage *= self.damage_reduction_mult
+        # Knight-evolution one-shot shield: reduces the first attack, then drops.
+        if self.evo_shield and not is_dot:
+            damage *= self.evo_shield_mult
+            self.evo_shield = False
         if self.has_shield and self.shield_hp > 0:
             self.shield_hp -= damage
             if self.shield_hp <= 0:
@@ -208,12 +222,14 @@ def entity_from_card(
     y: float,
     hp_override: float = 0.0,
     dps_override: float = 0.0,
+    evolved: bool = False,
 ) -> Entity:
     """Create a live Entity from a CardDef at a given position."""
     hp = hp_override if hp_override > 0 else card_def.hp
     dps = dps_override if dps_override > 0 else card_def.dps
     deploy_time = card_def.deploy_time if card_def.kind == EntityKind.TROOP else 0.0
     return Entity(
+        is_evolved=evolved,
         eid=eid,
         owner=owner,
         card_type=card_def.card_type,
