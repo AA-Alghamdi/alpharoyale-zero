@@ -26,7 +26,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 
 from crsim.actions import action_id_to_action as _action_from_id
-from crsim.cards import CARD_DEFS, EntityKind
+from crsim.cards import CARD_DEFS, EntityKind, TargetMode
 from crsim.constants import (
     ARENA_H,
     ARENA_W,
@@ -159,6 +159,152 @@ class HeuristicAgent:
             py = RIVER_ROW_LO - 1 if player == 0 else RIVER_ROW_HI + 1
             aid = _place_action_id(mask, slot, col, py)
             return aid if aid is not None else WAIT_ACTION
+
+        return WAIT_ACTION
+
+
+def _can_hit_air(card_def) -> bool:
+    return card_def.target_mode == TargetMode.AIR_GROUND
+
+
+class MetaAgent:
+    """A stronger scripted opponent that plays for elixir value.
+
+    It is the next rung above :class:`HeuristicAgent`: instead of always
+    answering a threat with the highest-DPS card and pushing blindly, it makes
+    the three decisions that separate a competent ladder player from a button
+    masher, in priority order:
+
+      1. **Value spells.** If an affordable spell would catch >= ``spell_min_hits``
+         enemy troops inside its radius, cast it on the densest cluster — a
+         positive elixir trade the heuristic never makes.
+      2. **Efficient defense.** Meet the most-advanced threat on our half with
+         the most *elixir-efficient* responder that can actually hit it (air
+         units need an air-capable answer), placed between the threat and the
+         tower it is walking toward — not merely the biggest-DPS card we hold.
+      3. **Win-condition pressure.** With a banked-elixir lead and no threats,
+         commit a building-targeting win condition at the bridge of the
+         *weaker* enemy lane, and support an already-advancing win condition
+         with our highest-DPS troop behind it.
+
+    Everything is deterministic (no RNG) so ladder results are reproducible, and
+    every returned id is filtered through the legal-action mask.
+    """
+
+    def __init__(self, push_elixir: float = 6.0, spell_min_hits: int = 3) -> None:
+        self.push_elixir = push_elixir
+        self.spell_min_hits = spell_min_hits
+
+    def _on_our_half(self, player: int, y: float) -> bool:
+        return y < RIVER_ROW_LO if player == 0 else y > RIVER_ROW_HI
+
+    def _hand(self, game: CRGame, player: int, kind: EntityKind):
+        ps = game.players[player]
+        out = []
+        for slot in range(NUM_HAND_SLOTS):
+            card_def = CARD_DEFS[ps.deck[ps.hand[slot]]]
+            if card_def.kind == kind and ps.elixir >= card_def.cost:
+                out.append((slot, card_def))
+        return out
+
+    def _enemy_troops(self, game: CRGame, player: int):
+        return [
+            e
+            for e in game.entities
+            if e.alive and not e.is_tower and e.owner != player
+        ]
+
+    def _weak_lane_col(self, game: CRGame, player: int) -> int:
+        """Bridge column of the enemy lane we should attack (weaker / open)."""
+        towers = game.princess_towers[1 - player]
+        lanes = [
+            (t, BRIDGE_LEFT_COLS[0] if t.x < ARENA_W / 2 else BRIDGE_RIGHT_COLS[0])
+            for t in towers
+        ]
+        dead = [(t, col) for t, col in lanes if not t.alive]
+        if dead:
+            return dead[0][1]
+        if not lanes:
+            return BRIDGE_RIGHT_COLS[0]
+        return min(lanes, key=lambda tc: tc[0].hp)[1]
+
+    def select_action(self, game: CRGame, player: int) -> int:
+        ps = game.players[player]
+        mask = game.get_valid_actions_mask(player)
+        enemies = self._enemy_troops(game, player)
+
+        # 1. Value spell on the densest enemy cluster.
+        spells = self._hand(game, player, EntityKind.SPELL)
+        if spells and enemies:
+            best: tuple[int, float, float, int] | None = None
+            for slot, card_def in spells:
+                r = card_def.splash_radius if card_def.splash_radius > 0 else 2.5
+                for anchor in enemies:
+                    cluster = [
+                        e
+                        for e in enemies
+                        if (e.x - anchor.x) ** 2 + (e.y - anchor.y) ** 2 <= r * r
+                    ]
+                    if len(cluster) >= self.spell_min_hits:
+                        cx = sum(e.x for e in cluster) / len(cluster)
+                        cy = sum(e.y for e in cluster) / len(cluster)
+                        if best is None or len(cluster) > best[0]:
+                            best = (len(cluster), cx, cy, slot)
+            if best is not None:
+                aid = _place_action_id(mask, best[3], int(best[1]), int(best[2]))
+                if aid is not None:
+                    return aid
+
+        troops = self._hand(game, player, EntityKind.TROOP)
+
+        # 2. Defend the most-advanced threat with the most efficient responder.
+        threats = [e for e in enemies if self._on_our_half(player, e.y)]
+        if threats and troops:
+            target = min(
+                threats, key=lambda e: e.y if player == 0 else (ARENA_H - e.y)
+            )
+            usable = [
+                (s, c) for s, c in troops if not target.is_flying or _can_hit_air(c)
+            ]
+            if usable:
+                # Best damage per elixir among cards that can engage the threat.
+                slot = max(usable, key=lambda s: s[1].dps / max(s[1].cost, 1))[0]
+                ty = int(target.y) - 1 if player == 0 else int(target.y) + 1
+                aid = _place_action_id(mask, slot, int(target.x), ty)
+                if aid is not None:
+                    return aid
+
+        # 3. Pressure: support an advancing win condition, else open a new push.
+        if troops and ps.elixir >= self.push_elixir:
+            wincons = [s for s in troops if s[1].target_mode == TargetMode.BUILDINGS]
+            advancing = [
+                e
+                for e in game.entities
+                if e.alive
+                and e.owner == player
+                and not e.is_tower
+                and e.target_mode == TargetMode.BUILDINGS
+                and not self._on_our_half(player, e.y)
+            ]
+            py = RIVER_ROW_LO - 1 if player == 0 else RIVER_ROW_HI + 1
+
+            if advancing and not wincons:
+                # Support behind our tank with the highest-DPS troop we hold.
+                tank = advancing[0]
+                slot = max(troops, key=lambda s: s[1].dps)[0]
+                sy = int(tank.y) - 2 if player == 0 else int(tank.y) + 2
+                aid = _place_action_id(mask, slot, int(tank.x), sy)
+                if aid is not None:
+                    return aid
+
+            col = self._weak_lane_col(game, player)
+            if wincons:
+                slot = max(wincons, key=lambda s: s[1].hp)[0]
+            else:
+                slot = max(troops, key=lambda s: s[1].hp)[0]
+            aid = _place_action_id(mask, slot, col, py)
+            if aid is not None:
+                return aid
 
         return WAIT_ACTION
 
