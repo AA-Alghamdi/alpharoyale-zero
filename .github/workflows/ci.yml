@@ -45,5 +45,7 @@ jobs:
           pip install -e . --no-deps
       - name: Run tests
         run: pytest tests/ -q
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Run dataset smoke test
         run: python tools/dataset/smoke_test.py
