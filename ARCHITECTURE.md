@@ -4,6 +4,19 @@ Clash Royale Zero is designed as a closed-loop platform: collect structured
 gameplay, improve policies in simulation, evaluate them against stable baselines,
 then deploy the same decision interface to a live emulator.
 
+## Design Thesis
+
+The architecture is built around one constraint: every subsystem should share the
+same strategic vocabulary. Video records, simulator states, model features,
+search nodes, training targets, evaluator games, and live emulator taps all map
+back to the same ideas of time, elixir, towers, entities, cards, legal actions,
+and outcomes.
+
+That design keeps the project from becoming separate demos. Dataset records can
+be audited against simulator states. Search can produce targets for training.
+Evaluation can reuse the same legal masks that protect live control. The live
+bridge becomes a deployment surface for policies instead of a separate bot.
+
 ## System Map
 
 ```text
@@ -130,3 +143,18 @@ The repo keeps tests close to the contracts that matter:
 The goal is to make policy training failures diagnosable: mechanics, encoding,
 data, search, and trainer behavior can be tested independently before spending
 large compute on a full run.
+
+## Methodology In Practice
+
+The system is developed in layers:
+
+1. Lock down mechanics and action legality with small deterministic tests.
+2. Encode simulator state into stable model features and masks.
+3. Use scripted baselines and search to create repeatable evaluation signals.
+4. Convert gameplay into `GameRecord` examples with confidence and provenance.
+5. Warm-start and evaluate policies before scaling self-play.
+6. Deploy only through the shared action interface used by the simulator.
+
+This keeps the research loop observable. A bad match result can be decomposed
+into data quality, simulator fidelity, feature representation, action masking,
+search quality, policy training, or live input translation.
