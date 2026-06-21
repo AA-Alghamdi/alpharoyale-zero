@@ -1,0 +1,26 @@
+# Example pipeline configuration. Copy to config.yaml and edit.
+discovery:
+  per_query: 50
+  window_years: 2          # filter to last N years (needs YouTube Data API for exact dates)
+  queries:
+    - clash royale ladder gameplay
+    - clash royale path of legends gameplay
+    - clash royale top ladder
+    - clash royale grand challenge gameplay
+
+download:
+  max_height: 480
+  # YouTube bot-walls datacenter IPs. Provide ONE of these to authenticate:
+  cookiefile: null                       # path to a Netscape cookies.txt exported from a logged-in account
+  cookies_from_browser: null             # e.g. "chrome:/home/ubuntu/.browser_data_dir"
+  proxy: null                            # e.g. "http://user:pass@residential-proxy:port"
+  player_clients: [web_safari, mweb, tv]
+
+frames:
+  sample_fps: 1.0                        # frames per second to annotate
+  scale_width: 640
+
+annotator:
+  provider: mock                         # mock or a configured remote provider
+  model: null                            # provider-specific model name
+  # Provider credentials are read from environment variables.

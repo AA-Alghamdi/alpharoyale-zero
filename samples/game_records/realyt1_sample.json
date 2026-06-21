@@ -1,0 +1,595 @@
+{
+  "schema_version": "0.1.0",
+  "video_id": "realyt1",
+  "video_url": "https://www.youtube.com/watch?v=uyXYTIJgM4w",
+  "channel": "top-ladder test",
+  "upload_date": "20240601",
+  "game_index_in_video": 0,
+  "segment_start_s": 0.0,
+  "segment_end_s": 18.0,
+  "mode": "unknown",
+  "arena": null,
+  "trophy_range": null,
+  "player": {
+    "name": null,
+    "clan": null,
+    "trophies": null,
+    "king_level": null,
+    "deck": [
+      "Fireball",
+      "Cannon",
+      "Hog Rider",
+      "Bomber",
+      "Ice Spirit",
+      "Skeletons",
+      "Musketeer",
+      "Knight"
+    ],
+    "style_tags": [
+      "cycle"
+    ]
+  },
+  "opponent": {
+    "name": null,
+    "clan": null,
+    "trophies": null,
+    "king_level": null,
+    "deck": [
+      "Goblin Cage",
+      "The Log",
+      "Skeletons",
+      "Dart Goblin",
+      "Goblin Giant",
+      "Sparky",
+      "Goblins"
+    ],
+    "style_tags": [
+      "cycle"
+    ]
+  },
+  "timeline": [
+    {
+      "game_time_s": 52.0,
+      "video_time_s": 0.0,
+      "frame_path": "data/frames/realyt1/frame_000001.jpg",
+      "elixir_player": 6.0,
+      "elixir_opponent": null,
+      "phase": "double",
+      "player_towers": {
+        "king_hp": null,
+        "left_princess_hp": 4256,
+        "right_princess_hp": 4702,
+        "king_activated": false
+      },
+      "opponent_towers": {
+        "king_hp": null,
+        "left_princess_hp": 4105,
+        "right_princess_hp": 4802,
+        "king_activated": false
+      },
+      "crowns_player": 0,
+      "crowns_opponent": 0,
+      "units": [
+        {
+          "owner": "opponent",
+          "card": "Goblin Cage",
+          "position": {
+            "x": 6.5,
+            "y": 22.0
+          },
+          "count": 1,
+          "confidence": 0.9
+        },
+        {
+          "owner": "opponent",
+          "card": "The Log",
+          "position": {
+            "x": 3.5,
+            "y": 16.0
+          },
+          "count": 1,
+          "confidence": 0.9
+        },
+        {
+          "owner": "opponent",
+          "card": "Skeletons",
+          "position": {
+            "x": 14.0,
+            "y": 16.0
+          },
+          "count": 3,
+          "confidence": 0.8
+        }
+      ],
+      "actions": [],
+      "is_gameplay": true,
+      "confidence": 0.9,
+      "raw_annotation": {
+        "is_gameplay": true,
+        "game_time_s": 52,
+        "phase": "double",
+        "elixir_player": 6,
+        "elixir_opponent": null,
+        "crowns_player": 0,
+        "crowns_opponent": 0,
+        "player_towers": {
+          "king_hp": null,
+          "left_princess_hp": 4256,
+          "right_princess_hp": 4702,
+          "king_activated": false
+        },
+        "opponent_towers": {
+          "king_hp": null,
+          "left_princess_hp": 4105,
+          "right_princess_hp": 4802,
+          "king_activated": false
+        },
+        "units": [
+          {
+            "owner": "opponent",
+            "card": "Goblin Cage",
+            "position": {
+              "x": 6.5,
+              "y": 22.0
+            },
+            "count": 1,
+            "confidence": 0.9
+          },
+          {
+            "owner": "opponent",
+            "card": "The Log",
+            "position": {
+              "x": 3.5,
+              "y": 16.0
+            },
+            "count": 1,
+            "confidence": 0.9
+          },
+          {
+            "owner": "opponent",
+            "card": "Skeletons",
+            "position": {
+              "x": 14.0,
+              "y": 16.0
+            },
+            "count": 3,
+            "confidence": 0.8
+          }
+        ],
+        "actions": [],
+        "visible_cards_in_hand": [
+          "Bomber",
+          "Fireball"
+        ],
+        "confidence": 0.9
+      }
+    },
+    {
+      "game_time_s": 46.0,
+      "video_time_s": 6.0,
+      "frame_path": "data/frames/realyt1/frame_000004.jpg",
+      "elixir_player": 1.0,
+      "elixir_opponent": null,
+      "phase": "double",
+      "player_towers": {
+        "king_hp": null,
+        "left_princess_hp": 4256,
+        "right_princess_hp": 4468,
+        "king_activated": false
+      },
+      "opponent_towers": {
+        "king_hp": null,
+        "left_princess_hp": 4049,
+        "right_princess_hp": 4802,
+        "king_activated": false
+      },
+      "crowns_player": 0,
+      "crowns_opponent": 0,
+      "units": [
+        {
+          "owner": "opponent",
+          "card": "Goblin Cage",
+          "position": {
+            "x": 6.5,
+            "y": 22.0
+          },
+          "count": 1,
+          "confidence": 0.9
+        },
+        {
+          "owner": "player",
+          "card": "Ice Spirit",
+          "position": {
+            "x": 3.5,
+            "y": 12.0
+          },
+          "count": 1,
+          "confidence": 0.9
+        }
+      ],
+      "actions": [
+        {
+          "owner": "player",
+          "card": "Bomber",
+          "position": {
+            "x": 7.0,
+            "y": 11.0
+          },
+          "elixir_cost": 2,
+          "confidence": 0.8
+        }
+      ],
+      "is_gameplay": true,
+      "confidence": 0.9,
+      "raw_annotation": {
+        "is_gameplay": true,
+        "game_time_s": 46,
+        "phase": "double",
+        "elixir_player": 1,
+        "elixir_opponent": null,
+        "crowns_player": 0,
+        "crowns_opponent": 0,
+        "player_towers": {
+          "king_hp": null,
+          "left_princess_hp": 4256,
+          "right_princess_hp": 4468,
+          "king_activated": false
+        },
+        "opponent_towers": {
+          "king_hp": null,
+          "left_princess_hp": 4049,
+          "right_princess_hp": 4802,
+          "king_activated": false
+        },
+        "units": [
+          {
+            "owner": "opponent",
+            "card": "Goblin Cage",
+            "position": {
+              "x": 6.5,
+              "y": 22.0
+            },
+            "count": 1,
+            "confidence": 0.9
+          },
+          {
+            "owner": "player",
+            "card": "Ice Spirit",
+            "position": {
+              "x": 3.5,
+              "y": 12.0
+            },
+            "count": 1,
+            "confidence": 0.9
+          }
+        ],
+        "actions": [
+          {
+            "owner": "player",
+            "card": "Bomber",
+            "position": {
+              "x": 7.0,
+              "y": 11.0
+            },
+            "elixir_cost": 2,
+            "confidence": 0.8
+          }
+        ],
+        "visible_cards_in_hand": [
+          "Cannon",
+          "Musketeer",
+          "Fireball"
+        ],
+        "confidence": 0.9
+      }
+    },
+    {
+      "game_time_s": 40.0,
+      "video_time_s": 12.0,
+      "frame_path": "data/frames/realyt1/frame_000007.jpg",
+      "elixir_player": 5.0,
+      "elixir_opponent": null,
+      "phase": "double",
+      "player_towers": {
+        "king_hp": null,
+        "left_princess_hp": 4256,
+        "right_princess_hp": 3440,
+        "king_activated": false
+      },
+      "opponent_towers": {
+        "king_hp": null,
+        "left_princess_hp": 4049,
+        "right_princess_hp": 4802,
+        "king_activated": false
+      },
+      "crowns_player": 0,
+      "crowns_opponent": 0,
+      "units": [
+        {
+          "owner": "player",
+          "card": "Knight",
+          "position": {
+            "x": 4.0,
+            "y": 19.0
+          },
+          "count": 1,
+          "confidence": 0.9
+        },
+        {
+          "owner": "opponent",
+          "card": "Goblin Cage",
+          "position": {
+            "x": 6.5,
+            "y": 21.5
+          },
+          "count": 1,
+          "confidence": 0.9
+        },
+        {
+          "owner": "opponent",
+          "card": "Dart Goblin",
+          "position": {
+            "x": 11.5,
+            "y": 11.5
+          },
+          "count": 1,
+          "confidence": 0.8
+        }
+      ],
+      "actions": [
+        {
+          "owner": "player",
+          "card": "Ice Spirit",
+          "position": {
+            "x": 11.0,
+            "y": 11.0
+          },
+          "elixir_cost": 1,
+          "confidence": 0.8
+        }
+      ],
+      "is_gameplay": true,
+      "confidence": 0.9,
+      "raw_annotation": {
+        "is_gameplay": true,
+        "game_time_s": 40,
+        "phase": "double",
+        "elixir_player": 5,
+        "elixir_opponent": null,
+        "crowns_player": 0,
+        "crowns_opponent": 0,
+        "player_towers": {
+          "king_hp": null,
+          "left_princess_hp": 4256,
+          "right_princess_hp": 3440,
+          "king_activated": false
+        },
+        "opponent_towers": {
+          "king_hp": null,
+          "left_princess_hp": 4049,
+          "right_princess_hp": 4802,
+          "king_activated": false
+        },
+        "units": [
+          {
+            "owner": "player",
+            "card": "Knight",
+            "position": {
+              "x": 4.0,
+              "y": 19.0
+            },
+            "count": 1,
+            "confidence": 0.9
+          },
+          {
+            "owner": "opponent",
+            "card": "Goblin Cage",
+            "position": {
+              "x": 6.5,
+              "y": 21.5
+            },
+            "count": 1,
+            "confidence": 0.9
+          },
+          {
+            "owner": "opponent",
+            "card": "Dart Goblin",
+            "position": {
+              "x": 11.5,
+              "y": 11.5
+            },
+            "count": 1,
+            "confidence": 0.8
+          }
+        ],
+        "actions": [
+          {
+            "owner": "player",
+            "card": "Ice Spirit",
+            "position": {
+              "x": 11.0,
+              "y": 11.0
+            },
+            "elixir_cost": 1,
+            "confidence": 0.8
+          }
+        ],
+        "visible_cards_in_hand": [
+          "Skeletons",
+          "Cannon",
+          "Hog Rider",
+          "Fireball"
+        ],
+        "confidence": 0.9
+      }
+    },
+    {
+      "game_time_s": 146.0,
+      "video_time_s": 18.0,
+      "frame_path": "data/frames/realyt1/frame_000010.jpg",
+      "elixir_player": 6.0,
+      "elixir_opponent": null,
+      "phase": "double",
+      "player_towers": {
+        "king_hp": null,
+        "left_princess_hp": 4256,
+        "right_princess_hp": 3440,
+        "king_activated": false
+      },
+      "opponent_towers": {
+        "king_hp": null,
+        "left_princess_hp": 4049,
+        "right_princess_hp": 4802,
+        "king_activated": false
+      },
+      "crowns_player": 0,
+      "crowns_opponent": 0,
+      "units": [
+        {
+          "owner": "player",
+          "card": "Hog Rider",
+          "position": {
+            "x": 13.5,
+            "y": 14.5
+          },
+          "count": 1,
+          "confidence": 0.9
+        },
+        {
+          "owner": "opponent",
+          "card": "Goblin Giant",
+          "position": {
+            "x": 14.5,
+            "y": 22.5
+          },
+          "count": 1,
+          "confidence": 0.9
+        },
+        {
+          "owner": "opponent",
+          "card": "Sparky",
+          "position": {
+            "x": 14.5,
+            "y": 24.5
+          },
+          "count": 1,
+          "confidence": 0.9
+        },
+        {
+          "owner": "opponent",
+          "card": "Goblins",
+          "position": {
+            "x": 4.5,
+            "y": 19.0
+          },
+          "count": 3,
+          "confidence": 0.8
+        }
+      ],
+      "actions": [
+        {
+          "owner": "player",
+          "card": "Hog Rider",
+          "position": {
+            "x": 13.5,
+            "y": 13.0
+          },
+          "elixir_cost": 4,
+          "confidence": 0.9
+        }
+      ],
+      "is_gameplay": true,
+      "confidence": 0.95,
+      "raw_annotation": {
+        "is_gameplay": true,
+        "game_time_s": 146,
+        "phase": "double",
+        "elixir_player": 6,
+        "elixir_opponent": null,
+        "crowns_player": 0,
+        "crowns_opponent": 0,
+        "player_towers": {
+          "king_hp": null,
+          "left_princess_hp": 4256,
+          "right_princess_hp": 3440,
+          "king_activated": false
+        },
+        "opponent_towers": {
+          "king_hp": null,
+          "left_princess_hp": 4049,
+          "right_princess_hp": 4802,
+          "king_activated": false
+        },
+        "units": [
+          {
+            "owner": "player",
+            "card": "Hog Rider",
+            "position": {
+              "x": 13.5,
+              "y": 14.5
+            },
+            "count": 1,
+            "confidence": 0.9
+          },
+          {
+            "owner": "opponent",
+            "card": "Goblin Giant",
+            "position": {
+              "x": 14.5,
+              "y": 22.5
+            },
+            "count": 1,
+            "confidence": 0.9
+          },
+          {
+            "owner": "opponent",
+            "card": "Sparky",
+            "position": {
+              "x": 14.5,
+              "y": 24.5
+            },
+            "count": 1,
+            "confidence": 0.9
+          },
+          {
+            "owner": "opponent",
+            "card": "Goblins",
+            "position": {
+              "x": 4.5,
+              "y": 19.0
+            },
+            "count": 3,
+            "confidence": 0.8
+          }
+        ],
+        "actions": [
+          {
+            "owner": "player",
+            "card": "Hog Rider",
+            "position": {
+              "x": 13.5,
+              "y": 13.0
+            },
+            "elixir_cost": 4,
+            "confidence": 0.9
+          }
+        ],
+        "visible_cards_in_hand": [
+          "Skeletons",
+          "Cannon",
+          "The Log",
+          "Fireball"
+        ],
+        "confidence": 0.95
+      }
+    }
+  ],
+  "result": "draw",
+  "final_crowns_player": 0,
+  "final_crowns_opponent": 0,
+  "annotation_model": "remote-frame-annotator",
+  "sample_fps": 0.5,
+  "prompt_version": "cr-state-v1",
+  "mean_confidence": 0.912,
+  "notes": null
+}

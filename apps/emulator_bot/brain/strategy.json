@@ -1,0 +1,989 @@
+[
+ {
+  "dimension": "Elixir advantage and management: positive/negative trades, when to spend vs save, never leaking at 10, punishing the opponent at negative elixir",
+  "principles": [
+   {
+    "name": "Never leak: dump elixir before the bar caps at 10",
+    "trigger": "Our elixir >= 9 AND elixir bar is still filling (not at the start of double-elixir overtime where it fills 2x). Detect: our_elixir >= 9 and time since our last card play is causing the bar to approach max.",
+    "action": "Immediately play your cheapest defensive/cycle card (Spear Goblins, Goblins, Skeletons, Archers, Knight) at the back of YOUR side near the King Tower (tile ~ x=center, y=3 from your back edge). This converts soon-to-be-wasted elixir into board value or a cycle card without committing it to the front. Prefer a unit that survives to add a chip threat over a spell.",
+    "rationale": "Elixir generated while the bar is full is permanently lost. Each second at 10 leaks ~0.36 elixir (1 per 2.8s single / 1 per 1.4s double). Over a 3-minute match, chronic leaking silently donates several elixir per game, equal to a free Fireball, and is the single most common bot error.",
+    "priority": 1
+   },
+   {
+    "name": "Defend with the cheapest hard counter (force positive trades)",
+    "trigger": "An enemy unit is committed on offense and crossing the river toward our tower. Identify cost of the threat vs cost of our available counter. Example: enemy Musketeer (4) on the bridge, enemy Hog Rider (4) committed, enemy Giant (5) walking.",
+    "action": "Answer with a counter cheaper than the threat. Knight (3) bodies a Musketeer or Mini P.E.K.K.A; Skeletons (1)/Goblins (2) swarm and surround a single-target tank-killer like Mini P.E.K.K.A or Prince from behind; Archers (3) shoot down a Minion Horde alongside an Arrows-bait. Place ground counters so the enemy walks INTO them on our side, never across the river.",
+    "rationale": "Every defense should aim to spend fewer elixir than the attacker did. A 3-for-4 (Knight kills Musketeer) is +1; surviving units that counterpush convert the trade into +2 or more. Winning the defensive trade is how you accumulate the advantage that wins the match.",
+    "priority": 1
+   },
+   {
+    "name": "Use surviving defenders to start a counterpush (compound the trade)",
+    "trigger": "Our defense just succeeded: a defending unit (Knight, Musketeer, Giant, Archers) survived with >40% HP AND there is no immediate new enemy threat (enemy elixir likely low after their failed push).",
+    "action": "Do NOT play new cards. Let the surviving unit walk toward the enemy tower, then support it with ONE follow-up from the back (e.g. surviving Knight + add Archers behind). Push the lane opposite to where the enemy still has defensive cards if known.",
+    "rationale": "Free elixir already on the board is the cheapest offense in the game. A surviving Musketeer that becomes a counterpush damage-dealer turns a +1 defensive trade into tower damage at zero additional risk. This is the core skill that separates 4000+ from 7000+ play.",
+    "priority": 1
+   },
+   {
+    "name": "Punish hard the moment the opponent is at negative elixir",
+    "trigger": "Opponent just spent a big chunk: they played a 5+ cost card (Giant, P.E.K.K.A, Golem, Witch+support) OR committed multiple cards on one side, leaving them likely below 4 elixir. Estimate enemy elixir by tracking what they played and the clock.",
+    "action": "Launch your win condition into the OPPOSITE lane: Giant from the back corner with a support unit, or Hog Rider straight to the bridge. They cannot afford a full defense, so you either get tower damage or force them into a bad reactive trade. If you have no win condition in hand, cycle one cheap card to your win condition fast.",
+    "rationale": "An elixir lead is only worth points when you convert it to tower HP. The window right after the opponent overspends is when their defensive options are weakest. Attacking into a full elixir bar is the inverse mistake. Time the push to elixir, not to a fixed clock.",
+    "priority": 2
+   },
+   {
+    "name": "Don't overcommit to defense; spend the minimum that wins",
+    "trigger": "A single, manageable enemy threat is approaching (one Hog, one Mini P.E.K.K.A, lone Musketeer) AND we are tempted to drop 2+ cards on it. Our elixir is not at risk of leaking.",
+    "action": "Place exactly ONE adequate counter and hold the rest. For a Hog Rider, a Knight or Cannon-equivalent building/Goblins placed in its path is enough; do not add Archers + Minions unless a tank is behind it. Keep hand value for the counterpush.",
+    "rationale": "Overdefending turns a winnable +1 trade into a -2 by burning cards on a threat that one card neutralizes. The opponent's lone unit is often bait to drain your hand before their real push. Spend the minimum, bank the rest.",
+    "priority": 2
+   },
+   {
+    "name": "Save elixir and stay reactive when the opponent holds a full or near-full bar",
+    "trigger": "Opponent is sitting passively, has NOT played a card recently, and their elixir is likely 8-10 (they are hoarding). Our elixir is moderate (5-8) and NOT leaking.",
+    "action": "Do not open the attack. Make a single cheap, low-commitment placement (Spear Goblins / Archers at the back) only if you would otherwise leak, and keep your win condition and spells in hand. React to their first move with a cheaper counter, then counterpush.",
+    "rationale": "Attacking a full-bar opponent lets them out-trade you with a fresh hand and full elixir. Whoever commits first into an even/disadvantaged elixir state usually loses the exchange. Patience forces them to either leak (rule 1 in your favor) or commit first.",
+    "priority": 2
+   },
+   {
+    "name": "Bridge-block to deny their elixir and stall in overtime",
+    "trigger": "Single-elixir time or low on hard counters, and a moderate ground threat (single Hog/Giant/Knight) is incoming, and we have a cheap body available.",
+    "action": "Drop a cheap unit (Knight, Goblins, Skeletons) directly in the path so the enemy unit retargets and gets kited toward the King Tower side, buying time for the tower to do damage and for our elixir to regenerate. Place toward the center so it can be pulled away from the Arena Tower.",
+    "rationale": "Kiting converts a small elixir spend into seconds of tower damage and elixir regeneration, effectively a positive trade in tempo. Critical when you cannot afford the 'correct' counter and must defend on a budget.",
+    "priority": 3
+   },
+   {
+    "name": "Match spell to value; never throw a spell at one cheap unit",
+    "trigger": "Considering Arrows (3) or Fireball (4) on the board. Count enemy units in the blast radius and their combined cost.",
+    "action": "Cast Arrows only when it kills 2+ units worth >=3 total elixir (e.g. Minion Horde, Goblin Barrel, Spear Goblins + tower chip). Cast Fireball only when it kills/cripples a cluster worth >=5 (Musketeer + Goblins, Three Musketeers split) OR finishes a tower in range to seal the game. Otherwise hold the spell.",
+    "rationale": "Spending a 4-cost Fireball to kill a 2-cost Goblins is a -2 trade that bleeds your elixir lead. Spell value is the most frequent place naive bots leak advantage. Spells are positive-trade tools, not panic buttons.",
+    "priority": 3
+   },
+   {
+    "name": "In double elixir, keep the bar moving and never sit at 10",
+    "trigger": "Match time is in the last 60 seconds (2x elixir) OR overtime. Bar fills at double rate, so leaking risk is doubled. Our elixir >= 8.",
+    "action": "Maintain a continuous push: lead with a tank or cheap pressure unit, follow with support as elixir comes in, and never let two cards' worth of elixir sit idle. Keep applying pressure to the lane where the enemy is weakest, recycling spells onto value targets.",
+    "rationale": "In 2x elixir, sitting at 10 wastes ~0.7 elixir/second, double the normal leak. The player who keeps elixir flowing into pressure wins the overtime damage race. This is where games are decided.",
+    "priority": 3
+   },
+   {
+    "name": "Track enemy elixir and refuse trades when behind",
+    "trigger": "We are at an estimated elixir DISADVANTAGE (we spent more on the last exchange, or we are mid-counterpush recovery) AND a new enemy threat appears.",
+    "action": "Defend as cheaply as possible (cheapest body / kite / building), do NOT counterpush, and cycle back to a positive or even elixir state before re-engaging. Survive the wave, then resume rule 6 (save and react).",
+    "rationale": "Attacking from behind on elixir compounds the loss. Recognizing the disadvantage and playing pure defense lets the bar reset the imbalance for free (both players regen at the same rate, so the absolute lead persists but our hand recovers). Discipline when behind protects the tower.",
+    "priority": 4
+   }
+  ],
+  "antipatterns": [
+   "Sitting at 10 elixir doing nothing, leaking a free card's worth of elixir every ~28 seconds (and double in 2x time).",
+   "Fireballing or Arrowing a single cheap unit (e.g. 4-cost Fireball on lone 2-cost Goblins) for a guaranteed -2 trade.",
+   "Stacking 3-4 defensive cards on one harmless lone unit (overcommitting), draining the whole hand against a baiting opponent.",
+   "Attacking into a full enemy elixir bar with a single win condition, handing them a fully-supported defense and a free counterpush.",
+   "Letting surviving defenders walk to the tower and die alone (or pulling them back) instead of building a counterpush from them.",
+   "Counterpushing while at an elixir deficit, getting the push wiped and the tower cracked because there was nothing left to defend.",
+   "Spending elixir reactively the instant the opponent places anything, instead of waiting to see the full threat and answering with the cheapest counter.",
+   "Placing defensive counters across the river / on the enemy side, where they get punished, instead of letting enemy units walk into them on our side.",
+   "Ignoring enemy elixir state entirely (no tracking), so the bot never recognizes the punish window right after the opponent overspends on a 5+ tank.",
+   "Cycling expensive cards just to 'do something' when not leaking, throwing away elixir parity that patience would have preserved."
+  ]
+ },
+ {
+  "dimension": "Defense-first and counter-pushing: defend efficiently, let surviving troops walk into a counter-attack, value of defensive placements",
+  "principles": [
+   {
+    "name": "Never open with a win condition on the bridge",
+    "trigger": "Match time > 0:00 and < 1:30 (single-elixir), and we have not yet seen the opponent's deck (fewer than 4 distinct enemy cards observed), and our elixir < 10",
+    "action": "Do NOT play Giant/Hog/Balloon/Prince at the bridge. Hold. Let elixir bank toward 10. If forced to spend to avoid waste at 10 elixir, cycle a cheap card (Skeletons/Knight) defensively in the back behind King Tower (place at our-side y deep, center x).",
+    "rationale": "Opening on the bridge spends elixir before you know the matchup and lets a defense-first opponent counter you at a positive trade. Forcing the opponent to commit first means their attacker becomes your free counter-push fuel.",
+    "priority": 1
+   },
+   {
+    "name": "Defend with the cheapest sufficient counter, never overcommit",
+    "trigger": "An enemy ground push (e.g., Giant + support, or lone Hog/Knight/Mini P.E.K.K.A.) crosses the bridge into our half (enemy unit y past river toward our towers)",
+    "action": "Deploy the single lowest-elixir card whose DPS+HP is enough to neutralize the threat, placed so the tower shares the work. Tank (Giant/Knight): place Skeletons/Mini P.E.K.K.A./Knight at the tower base, slightly to the inside, so it tanks while the Arena Tower shoots. Do not add a second card unless the first is clearly losing.",
+    "rationale": "Winning a defense at an elixir profit (e.g., 3-elixir Knight kills a 5-elixir attacker) gives you the elixir lead that powers a counter-push. Overcommitting throws away the lead and leaves you open on the other lane.",
+    "priority": 1
+   },
+   {
+    "name": "Pull tanks to the center with a King-Tower-activating placement",
+    "trigger": "A high-HP enemy tank (Giant/Giant Skeleton/P.E.K.K.A.) is walking down one lane toward an Arena Tower, and our King Tower is still inactive (full HP, not yet shooting)",
+    "action": "Place the defending troop (Knight/Valkyrie/Mini P.E.K.K.A.) at the inner-center spot in front of the King Tower, between the two paths, so the tank's path bends toward center and both the King Tower and the Arena Tower hit it. This activates the King Tower for the rest of the match.",
+    "rationale": "Activating the King Tower early triples your defensive DPS for free and pulls tanks away from a single Arena Tower, drastically reducing damage taken and leaving more troops alive to counter-push.",
+    "priority": 2
+   },
+   {
+    "name": "Place splash defenders so survivors face the enemy lane",
+    "trigger": "An enemy swarm or support group (e.g., Skeleton Army, Goblins, Barbarians, Minions, Spear Goblins behind a tank) is approaching one of our towers",
+    "action": "Drop Valkyrie/Bomber/Arrows-style splash on the side of the tower that lets surviving splash unit end up positioned toward the enemy's lane. Specifically place the Valkyrie/Bomber one tile in front of and slightly behind the swarm so after clearing it the unit is already pointed at the bridge to walk back as a counter-attacker.",
+    "rationale": "Cheap splash beats swarms at a large elixir profit, and the surviving splasher becomes a free counter-push tank/threat that the opponent must now answer.",
+    "priority": 2
+   },
+   {
+    "name": "Let survivors walk in, then add a tank in front and support behind",
+    "trigger": "Our defense has just resolved and one or more of our troops survived with >40% HP, the enemy is now low on elixir (they just spent on the attack; estimate enemy elixir < 5), and the survivor is on our side facing the bridge",
+    "action": "Do NOT pull the survivor back. Behind it, deploy a tank (Giant/Knight) at the back-center on the SAME lane so the tank leads and the survivor becomes ranged/splash support. If you have a spell (Fireball/Arrows) and the enemy tower is undefended, hold it for the moment troops connect.",
+    "rationale": "A counter-push built on already-paid-for survivors is the highest-value offense in the game: you attack while the opponent is elixir-starved and out of position, converting a defensive stop into tower damage.",
+    "priority": 1
+   },
+   {
+    "name": "Counter-push the OPPOSITE lane from where they attacked",
+    "trigger": "The enemy committed a large push to one lane and it is now defeated, their troops are dead in that lane, and the enemy's elixir is low (< 5 estimated)",
+    "action": "Send your counter-attack down the lane the enemy did NOT just reinforce. Place your tank+survivor combo at the back of the opposite lane (back-corner of the empty side) so it builds up while crossing, hitting a tower the opponent has no troops near.",
+    "rationale": "After committing to one lane, the opponent has no defenders staged on the other side and is too low on elixir to respond, so the counter-push lands for maximum, often unanswered, tower damage.",
+    "priority": 2
+   },
+   {
+    "name": "Defend air with the right card, do not waste ground troops",
+    "trigger": "Enemy air unit (Baby Dragon, Minions, Balloon) is over our half and our ground-only defenders (Knight, Mini P.E.K.K.A., Valkyrie) cannot hit it",
+    "action": "Use an air-capable answer: Archers placed center-back to draw and shoot, Musketeer at the tower-side for single-target air, or Arrows on Minions if 3+. For a Balloon specifically, place Archers/Musketeer slightly ahead of the tower so the Balloon retargets to them, sparing the tower.",
+    "rationale": "Throwing a ground-locked troop at an air threat is a pure elixir loss and lets the air unit hit your tower. Correct targeting both saves the tower and preserves a ranged survivor for the counter-push.",
+    "priority": 2
+   },
+   {
+    "name": "Hold a spell for the counter-push payoff, not for chip",
+    "trigger": "We have a damage spell (Fireball/Arrows) in hand, our counter-push troops are crossing the bridge, and the enemy has dropped a defensive clump (e.g., Musketeer + Skeletons, or a fresh Barbarians) in front of our push near their tower",
+    "action": "Cast the spell on the defensive clump the instant 2+ enemy units overlap with our push's path, ideally catching the enemy tower in the spell radius too. Do not pre-fire the spell at an empty tower for small chip.",
+    "rationale": "A spell that both clears the defense and chips the tower converts a stalled counter-push into a tower-damage swing. Wasting it on early chip leaves you with no answer when it matters.",
+    "priority": 3
+   },
+   {
+    "name": "Defend in the back third to buy reaction time and pull distance",
+    "trigger": "Enemy plays a tank at THEIR bridge/back (push is forming, not yet at our half), and we have a defending troop ready",
+    "action": "Wait. Do not pre-place. Only deploy once the push crosses the river, and place the defender at the tower base (back-third of our side) so it has maximum walk-into distance for kiting and the Arena Tower contributes full duration of fire.",
+    "rationale": "Placing too early lets opponents adjust (e.g., split lanes, add a spell). Defending deep maximizes tower-shots-per-second on the threat and keeps survivors centrally placed to launch the counter.",
+    "priority": 3
+   },
+   {
+    "name": "Kite single-target tanks across the lane with a cheap pull",
+    "trigger": "A single-target high-DPS enemy unit (Prince, Mini P.E.K.K.A., P.E.K.K.A.) is locked onto one of our towers",
+    "action": "Drop a cheap distraction (Skeletons/single Knight) on the OPPOSITE inner side so the unit turns and chases it across the front of both towers, then finish it with the tower fire plus the distraction's chip. Place Skeletons directly on top of the unit to surround-and-block its target switch.",
+    "rationale": "Single-target chasers are easily kited; a 1-3 elixir pull neutralizes a 5-7 elixir threat at huge profit and the chaser ends up dead far from your towers, again leaving you elixir-ahead to counter.",
+    "priority": 3
+   },
+   {
+    "name": "Refuse to react to a single split-lane probe; defend only the real threat",
+    "trigger": "Enemy splits two cheap units across both lanes (e.g., one Spear Goblin / Skeletons each side) with no tank behind",
+    "action": "Ignore or let towers handle one lane; only commit a card if a unit will deal more damage than the card costs to stop. If both are trivial (chip < ~100), do nothing and let Arena Towers clean up.",
+    "rationale": "Reacting to every poke drains your hand and elixir, setting up the opponent's real push. Towers handle small threats for free; saving cards keeps you ready for the actual counter-push opportunity.",
+    "priority": 4
+   }
+  ],
+  "antipatterns": [
+   "Opening the match by dropping the win condition (Giant/Hog/Prince) on the bridge before seeing the opponent's deck, handing them a positive defensive trade and counter-push.",
+   "Overcommitting to defense: stacking 2-3 cards on a single weak threat (e.g., Knight + Skeletons + Archers on a lone Hog), winning the defense but at an elixir loss and leaving the other lane open.",
+   "Pulling surviving troops back to base after a successful defense instead of letting them walk into a counter-push while the enemy is elixir-starved.",
+   "Throwing ground-only troops (Knight, Valkyrie, Mini P.E.K.K.A.) at air units (Balloon, Minions, Baby Dragon) where they do zero damage and the air unit free-hits the tower.",
+   "Placing defenders too early (on the bridge or mid-river) before the push crosses, giving the opponent time to adapt or split lanes.",
+   "Defending a tank on the far outer edge of one Arena Tower so the King Tower never activates and only one tower shoots the tank.",
+   "Reacting to every cheap split-lane poke, draining the hand and elixir so the real push hits an empty hand.",
+   "Wasting the damage spell on small tower chip early instead of holding it to wipe the enemy's defensive clump during a counter-push.",
+   "Counter-pushing down the SAME lane the enemy just defended, walking into their staged defenders instead of the open opposite lane.",
+   "Letting elixir cap at 10 and overflow while turtling, wasting the very elixir advantage that defense-first play is supposed to build.",
+   "Splash-placing so survivors end up facing the back wall, wasting the free counter-attacker that a surviving Valkyrie/Bomber would otherwise become.",
+   "Spending the entire hand on defense so there is nothing left to start a counter-push the moment the opponent is exposed."
+  ]
+ },
+ {
+  "dimension": "Card placement geometry (tank-in-front/support-behind, kiting to center, building pulls, splash vs swarm, safe ranged placement) for an Arena 1-6 starter-style deck",
+  "principles": [
+   {
+    "name": "Tank leads, support trails 3-4 tiles behind same lane",
+    "trigger": "We have a tank in hand (Giant/Knight/Mini P.E.K.K.A) AND a ranged/DPS support in hand (Musketeer/Archers/Bomber) AND elixir >= tank_cost+support_cost AND no enemy push currently crossing the river",
+    "action": "Place the tank at our back line behind the king tower (center-back, ~y=2 from our edge) so it gathers elixir while walking; once tank reaches the bridge, drop the support 3-4 tiles directly behind it in the SAME lane. Never place support ahead of or level with the tank.",
+    "rationale": "The tank must absorb tower and troop fire so the squishy high-DPS support survives to deal damage. Support placed ahead dies first and wastes the whole push. The back-line tank start lets you reach 10 elixir before committing, so the support is ready when the tank arrives.",
+    "priority": 1
+   },
+   {
+    "name": "Defend first, never open by dumping the tank at the bridge",
+    "trigger": "Match time has elixir at < full (early game, first 60s) OR enemy elixir is unknown AND we hold a tank",
+    "action": "Hold. Do not place the tank at the bridge as a fresh opener. Wait until we are at 9-10 elixir or until the enemy commits a push, then start the tank at the back so it cycles into a counter-push behind our defending troops.",
+    "rationale": "A lone tank pushed first with no support behind it gets kited and chipped for free, and leaves us at low elixir to defend the counter. Reacting on defense and building the tank push behind survivors is strictly higher value at this skill bracket.",
+    "priority": 1
+   },
+   {
+    "name": "Kite single-target tanks/bruisers to the center king-tower line",
+    "trigger": "Enemy single-target ground unit that targets-nearest is committed to one lane (e.g. Giant, Mini P.E.K.K.A, Prince, Knight) AND it has crossed the river on our side",
+    "action": "Place a cheap distraction (Skeletons/Goblins/Spear Goblins, or Knight) on the OPPOSITE side of the incoming unit, roughly center-ish near the inner edge of the lane, to drag the enemy unit diagonally toward our king tower. Pulling it to center activates the king tower so THREE towers fire on it.",
+    "rationale": "Single-target chasers will reroute to the nearest cheap bait. Dragging them across to center activates the king tower (huge extra DPS) and buys time/distance, turning an even trade into a positive one. Only works on single-target, target-nearest units, not on ranged or building-targeters.",
+    "priority": 2
+   },
+   {
+    "name": "Place buildings on the 2-tile-from-river center spot to pull building-targeters off the lane",
+    "trigger": "Enemy building-targeting unit detected (Giant, Hog Rider, Balloon, Golem, Royal Giant) approaching or at the bridge AND we hold a defensive building (Cannon/Tombstone/Mortar used defensively)",
+    "action": "For Hog/fast units: place the building 4 tiles in from the river and 1 tile toward center (the classic 4-2 / center-pull spot) so the unit walks past our tower into the building's range and gets surrounded by tower fire. For slow tanks (Giant/Golem): place the building slightly further back so it eats the whole tank duration. Place buildings BEFORE the unit picks a target if possible.",
+    "rationale": "Building-targeters lock onto the nearest building. A correctly-placed building reroutes them away from the arena tower into a kill zone covered by tower DPS, neutralizing the push for a cheap elixir cost. Center placement keeps the pull effective against both lanes if mis-read.",
+    "priority": 2
+   },
+   {
+    "name": "Drop splash units to overlap the swarm's geometric center, slightly behind our tank or tower",
+    "trigger": "Enemy swarm/group present: 3+ low-HP units clustered (Skeleton Army, Goblin Gang, Minion Horde, Spear Goblins, Barbarians) within ~3 tiles of each other",
+    "action": "Play a splash card (Bomber for ground swarms; Arrows/Fireball for grouped Minions/Horde/Goblin Gang; Baby Dragon for air+ground) so the splash radius lands on the densest point of the cluster. For Bomber, position it behind the tank/tower so it survives and lobs onto the swarm. For Arrows, cast centered on the horde, leading slightly toward where they will be.",
+    "rationale": "Splash damage scales with how many enemies sit inside the radius. Hitting the centroid maximizes value and can one-shot an entire swarm (e.g. Arrows on Minion Horde, Bomber line through Skeleton Army), turning a 3-5 elixir investment into a hard positive trade.",
+    "priority": 2
+   },
+   {
+    "name": "Keep ranged units behind a body and out of splash/spell range",
+    "trigger": "We are deploying a squishy ranged unit (Musketeer, Archers, Spear Goblins) AND there is an enemy splash unit (Bomber/Baby Dragon/Valkyrie) or the opponent has shown a spell (Arrows/Fireball) this match",
+    "action": "Split or stagger them: place Archers as two singles 2-3 tiles apart rather than stacked, and place Musketeer behind a tank/building so she shoots from max range while the body soaks. Never stack multiple low-HP ranged units on one tile within Fireball/Arrows radius.",
+    "rationale": "Clustered low-HP units are a single-spell jackpot for the opponent. Spreading them denies a positive spell trade, and putting them behind a body lets them deal full DPS from safety. Max-range Musketeer (5+ tiles) hits tanks and air without taking melee hits.",
+    "priority": 3
+   },
+   {
+    "name": "Counter-push from defensive survivors instead of starting a new push from the back",
+    "trigger": "Our defense just ended with surviving units (e.g. a Musketeer + Knight that killed the enemy push) AND we have elixir to add one card",
+    "action": "Let the survivors walk forward as the new front, and place a fresh tank or support BEHIND them in the same lane to consolidate into one counter-push. Do not abandon survivors by opening the opposite lane.",
+    "rationale": "Survivors are free elixir already on the board; converting them into offense is the highest-efficiency aggression in the game. Building behind them reuses the tank-front/support-back geometry with units the opponent already paid to fail against.",
+    "priority": 3
+   },
+   {
+    "name": "Spread units against splash by deploying in a wide arc, not a column",
+    "trigger": "Enemy fielding splash (Bomber/Baby Dragon/Wizard) AND we want to commit multiple ground troops to attack or defend",
+    "action": "Deploy our troops spread laterally across 3-4 tiles (e.g. Knight one tile, Goblins another, Archers split) rather than a tight single-file line, so one splash hit cannot catch the whole group.",
+    "rationale": "Splash punishes clumping. A wide arc caps how many of our units take simultaneous damage, preserving DPS and forcing the splash unit to be less efficient. This is the inverse of the swarm-centroid rule applied to our own deployment.",
+    "priority": 4
+   },
+   {
+    "name": "Place air-target ranged units centered to cover both lanes when air threat is ambiguous",
+    "trigger": "Enemy has shown air units (Minions/Minion Horde/Baby Dragon/Balloon) but no air attack is committed yet AND we want a proactive anti-air placement",
+    "action": "Hold the anti-air ranged card (Musketeer/Archers) in hand; only commit when the air unit appears, then place it on the same lane 2-3 tiles back so it locks on while staying out of the air unit's range advance. Do not pre-place it at the bridge where it can be sniped or pulled.",
+    "rationale": "Anti-air is reactive; pre-committing wastes the unit's mobility and exposes it. Reacting keeps full information and lets you place at the geometrically safe spot once the threat's lane is known.",
+    "priority": 4
+   }
+  ],
+  "antipatterns": [
+   "Opening the match by dropping a lone tank at the bridge with no support behind it, then sitting at low elixir to defend the counter-push.",
+   "Placing the high-DPS support (Musketeer/Archers) IN FRONT of or level with the tank, so it dies to tower fire before dealing damage.",
+   "Stacking multiple squishy ranged units (two Archers, Musketeer + Spear Goblins) on a single tile, gifting the opponent a one-spell Arrows/Fireball jackpot.",
+   "Dropping Skeletons/Goblins directly on top of an incoming single-target tank instead of off to the side, so they fail to kite and just get cleaved without rerouting it.",
+   "Placing a defensive building far back in the corner against a Hog Rider, so the Hog still reaches and hits the tower before being pulled.",
+   "Casting Arrows/Fireball on a single unit or a loose pair instead of waiting for the swarm to cluster, throwing away a positive splash trade.",
+   "Putting a Bomber out front as the tank where it gets bodied immediately, instead of behind a tank/tower where it can lob splash safely.",
+   "Committing anti-air (Musketeer/Archers) pre-emptively at the bridge before the air unit's lane is known, letting it be sniped or kited.",
+   "Deploying troops in a tight single-file column straight into an enemy Bomber/Baby Dragon, letting one splash hit shred the entire group.",
+   "Abandoning units that survived defense to immediately open the opposite lane, wasting free elixir already on the board.",
+   "Mirroring the opponent's lane every time (always reacting in-lane) instead of using kite-to-center to activate the king tower.",
+   "Over-committing elixir into one mega-push (tank + 3 supports) early, leaving no defensive elixir and getting punished in the opposite lane."
+  ]
+ },
+ {
+  "dimension": "Win conditions and committing a push: identifying the win condition card, when to commit (single vs double elixir), supporting the win condition (starter-style deck, Giant primary win condition, Arena 1-6)",
+  "principles": [
+   {
+    "name": "Identify the Giant as the win condition",
+    "trigger": "Hand contains Giant (high HP, targets buildings only, no ranged/splash output of its own). Deck enumeration at match start lists Giant among the 8 cards.",
+    "action": "Flag Giant as the designated win-condition card. Route all offensive commitment decisions through it: never use Giant defensively in the back to soak (it ignores troops), and never spend it to chip a single tower when a counterpush is brewing. Treat Mini P.E.K.K.A / Musketeer / Knight as support+defense, not win conditions.",
+    "rationale": "In a starter deck only the Giant reliably reaches and connects to a tower; all other cards die or get kited before dealing tower damage. Misidentifying a support card as the win condition leads to elixir-negative chip attempts that never close a game.",
+    "priority": 1
+   },
+   {
+    "name": "Never start a Giant push from the front of the arena at high elixir",
+    "trigger": "You hold Giant AND your elixir >= 8 (near cap) AND no enemy push is currently on your side of the river.",
+    "action": "Place Giant at the very back, behind the King Tower (tile row nearest your King, center or slightly toward the weaker enemy tower lane). Do NOT drop it at the bridge.",
+    "rationale": "Back-placement lets elixir regenerate from 8 toward 10 while the Giant walks the full lane (~6-8 seconds), so by the time it crosses the river you can afford 1-2 support cards behind it. Bridge-dropping a lone Giant gives the opponent a free tower-targeting tank with zero support to kill.",
+    "priority": 1
+   },
+   {
+    "name": "Only commit support behind a Giant that has crossed the river untouched",
+    "trigger": "Your Giant is past the river bridge on the enemy side, still alive, AND your elixir >= 4 after the Giant.",
+    "action": "Place Musketeer or Archers 3-4 tiles directly behind the Giant (on your side of where the Giant currently is) so they walk in its shadow. If enemy has shown a swarm response, hold a small splash card (Arrows/Bomber) instead of dumping all support.",
+    "rationale": "Support placed behind the tank is shielded from the tower and from ground melee, maximizing the damage window while the Giant absorbs tower shots. Committing support before the Giant survives the bridge risks losing both to a Fireball/Valkyrie value play.",
+    "priority": 2
+   },
+   {
+    "name": "Defer the Giant commitment until double elixir (after 2:00 / 1:00 remaining) unless you have a 2+ elixir lead",
+    "trigger": "Match clock shows single-elixir phase (more than 2:00 remaining in a 3:00 game, i.e., time > 1:00 on the count-up or the x1 elixir indicator) AND elixir advantage <= +1.",
+    "action": "Hold the Giant. Spend single elixir on cycling cheap cards (Spear Goblins, Archers, Knight) for defense and small chip. Save the full Giant + double-support commitment for when the double-elixir (x2) timer begins.",
+    "rationale": "A Giant push costs ~9-12 elixir with support. In single elixir you cannot rebuild defense fast enough if the opponent counterpushes through the other lane. Double elixir lets you push AND hold defense, which is why committed pushes belong there.",
+    "priority": 2
+   },
+   {
+    "name": "Commit a Giant push immediately the instant the opponent over-commits on offense in the opposite lane",
+    "trigger": "Enemy has just spent >= 6 elixir attacking ONE lane (e.g., their own tank + support visible crossing toward your tower) AND your Giant is in hand.",
+    "action": "Drop the Giant at the bridge in the OPPOSITE lane right now, then defend the incoming push with cheap cards (Knight/Mini P.E.K.K.A on the tank, Spear Goblins on support). Add Giant support next cycle.",
+    "rationale": "When the opponent is elixir-negative and out of position, a counter-lane Giant forces them to split defense they don't have. Bridge placement is correct here specifically because the elixir-regeneration argument is overridden by the timing window of their over-commit.",
+    "priority": 2
+   },
+   {
+    "name": "Abort/redirect the push if a hard tank-killer appears on defense",
+    "trigger": "As your Giant approaches the tower, enemy plays Inferno-style or high-DPS single-target response (in Arena 1-6: Mini P.E.K.K.A, P.E.K.K.A, or a fresh full-HP Musketeer + Knight stack) directly on the Giant.",
+    "action": "Stop feeding elixir into the dying Giant. Do NOT chase with more support into the kill zone. Hold support cards; let the Giant trade down what it can, then look to counterpush with the surviving support troops once the enemy's defenders are damaged.",
+    "rationale": "Throwing good elixir after a doomed tank is the classic losing spiral. Preserving support troops for a counterpush converts their defensive spend into your next offensive window.",
+    "priority": 3
+   },
+   {
+    "name": "Pre-load splash/anti-swarm BEFORE the Giant connects when opponent has shown swarm cards",
+    "trigger": "Earlier in the match the opponent revealed Skeleton Army, Goblins, Goblin Gang, or Minions used defensively. Your Giant is now mid-lane on a fresh push.",
+    "action": "Keep Arrows (or Bomber) in hand and reserved. The moment swarm spawns on the Giant, drop Arrows on the swarm cluster (centered on the densest stack near the Giant), not preemptively on empty ground.",
+    "rationale": "A Giant with cleared support and a swarm-clear in reserve connects for full tower damage. Spending the splash preemptively wastes it; holding it as a hard counter to the known swarm guarantees value.",
+    "priority": 3
+   },
+   {
+    "name": "Cap total push spend so you never drop below safe defensive elixir in single elixir",
+    "trigger": "Single-elixir phase AND cumulative Giant-push spend this cycle would leave you below 4 elixir.",
+    "action": "Limit the push to Giant + exactly ONE support card (e.g., Giant + Musketeer = 9 elixir), then stop and let elixir refill to >= 4 before adding anything. Never run yourself to 0 on offense in single elixir.",
+    "rationale": "Bottoming out elixir on offense in single elixir is the single most common way starter players lose: the opponent's counterpush arrives while you have nothing to answer it. Keeping a 4-elixir floor preserves a Knight/Mini P.E.K.K.A answer.",
+    "priority": 3
+   },
+   {
+    "name": "Pick the lane by tower HP, defaulting to the already-damaged tower in double elixir",
+    "trigger": "It is double-elixir or overtime AND one enemy Princess Tower is below ~50% HP.",
+    "action": "Place the Giant push in the lane of the lower-HP tower to close it out. In overtime, a single connected Giant + Musketeer is often enough; commit fully since there is no counterpush penalty after time expires for a tower-race finish.",
+    "rationale": "Finishing a damaged tower is worth more than spreading chip across two healthy towers. Overtime removes the defend-the-other-lane risk that constrains earlier commitment, so the elixir-floor rules relax.",
+    "priority": 4
+   }
+  ],
+  "antipatterns": [
+   "Dropping a lone Giant at the bridge with no support and no elixir banked, handing the opponent a free tank to kill for positive trade.",
+   "Using the Giant on defense to body-block troops (it targets buildings only and walks past attackers, so it defends nothing).",
+   "Committing a full Giant + double-support push in single elixir, then having zero elixir when the opponent counterpushes the other lane.",
+   "Chasing a Giant that is being shredded by a Mini P.E.K.K.A/Inferno by dumping all remaining support into the kill zone.",
+   "Placing support troops in FRONT of or beside the Giant where the tower picks them off, instead of tucked behind the tank.",
+   "Spending Arrows/Bomber on empty ground preemptively, leaving no splash answer when the opponent's swarm actually lands on the Giant.",
+   "Splitting elixir between both lanes with half-pushes, so neither Giant push has enough support to connect.",
+   "Treating Musketeer or Mini P.E.K.K.A as the win condition and trying to chip towers with them, where they get kited and die before reaching the tower.",
+   "Starting a Giant push at 10 elixir from the bridge instead of the back, wasting the elixir-regen-during-walk window.",
+   "Ignoring tower HP and pushing the full-health lane in double elixir while the already-damaged tower sits one push from death."
+  ]
+ },
+ {
+  "dimension": "Spell usage and value (Fireball / Arrows / Zap): value targets, positive-elixir spell trades, finishing towers, never wasting spells on a single cheap unit",
+  "principles": [
+   {
+    "name": "Fireball the clustered medium-HP swarm (value kill)",
+    "trigger": "Enemy has 2+ medium-HP units overlapping inside one ~2.5-tile radius (e.g. Musketeer + Wizard, Witch + spawned skeletons, 3 Musketeers, Barbarians stacked) AND our elixir >= 4.",
+    "action": "Cast Fireball centered on the densest overlap point of the cluster. Aim so the circle covers the highest-value unit (Musketeer/Wizard) plus at least one extra body.",
+    "rationale": "Fireball (4) one-shots Arena 1-6 squishies (Musketeer ~340, Wizard ~340, Witch ~620 to near-death). Killing 2+ units worth 6+ elixir with a 4-elixir spell is a +2 or better trade and removes ranged DPS that would otherwise melt our Giant/tank.",
+    "priority": 1
+   },
+   {
+    "name": "Arrows the low-HP swarm that Fireball would overkill",
+    "trigger": "Enemy plays a fragile swarm whose individual HP is under ~150 and spread wider than a Fireball radius: Skeleton Army, Goblin Gang, Minion Horde, Spear Goblins, Bats, or a Princess.",
+    "action": "Cast Arrows (3) centered on the swarm; for Minion Horde/Skarmy aim slightly behind the lead unit so the full area covers the pack.",
+    "rationale": "Arrows wipe sub-150-HP swarms across a much larger radius than Fireball at 1 less elixir. Skeleton Army (15 skeletons, 3 elixir) or Minion Horde (5 elixir) killed by 3-elixir Arrows is a neutral-to-+2 trade and saves our tank from being swarmed. Using Fireball here wastes the radius and overpays.",
+    "priority": 1
+   },
+   {
+    "name": "Zap the smallest cheap swarm or to reset, never bigger spells",
+    "trigger": "Enemy plays a 1-2 elixir threat that Zap kills outright (Skeletons, single Goblins, Bats, Spear Goblins lone) OR an Inferno Tower/Inferno Dragon is charging on our tank OR a Sparky is about to fire.",
+    "action": "Cast Zap (2) on the unit cluster or on the charging Inferno/Sparky to kill the swarm or reset its charge/stun-attack.",
+    "rationale": "Zap kills ~150-HP units and is the cheapest swarm answer; spending Fireball/Arrows on what Zap handles burns 1-2 extra elixir every cycle. The stun also resets Inferno damage ramp and Sparky's shot, converting a near-loss into a save for 2 elixir.",
+    "priority": 2
+   },
+   {
+    "name": "Finish the tower with a spell only when the spell alone closes the gap",
+    "trigger": "Enemy Crown Tower HP <= the spell's tower damage (Fireball ~heavy chip, Arrows light, Zap light) AND it is the final ~30 seconds (especially overtime/sudden death) OR we cannot land a push before time expires.",
+    "action": "Cast the cheapest spell that reaches/exceeds tower HP at the tower. Prefer Fireball if HP is within its damage; use Zap/Arrows only on a near-dead tower they exactly finish.",
+    "rationale": "A spell-finish secures a guaranteed crown when the clock or a stalled push would otherwise leave the tower standing. But only when the spell ALONE finishes it; otherwise the spell is better saved for defense.",
+    "priority": 2
+   },
+   {
+    "name": "Hold the spell until the value target commits; do not spell on empty/single cheap unit",
+    "trigger": "Our spell is up but the only enemy units are a single cheap unit (lone Goblin, lone Skeleton, single Spear Goblin) OR the enemy has played nothing this push.",
+    "action": "Do not cast. Keep elixir banked and let a ground troop (Skeletons/Knight/Mini P.E.K.K.A) or the tower handle the single cheap unit. Wait for a 2+ unit cluster or a high-value target.",
+    "rationale": "A 4-elixir Fireball on a 1-elixir Skeleton is a -3 trade and the single worst recurring spell mistake. Spells are scarce high-value tools; a troop or the tower trades better against one cheap body.",
+    "priority": 1
+   },
+   {
+    "name": "Fireball the support behind the tank, not the tank",
+    "trigger": "Enemy runs a tank (Giant/Giant Skeleton/Golem) with squishy support (Musketeer/Witch/Wizard) walking just behind it AND our elixir >= 4.",
+    "action": "Cast Fireball on the SUPPORT troops trailing the tank, not on the tank itself. Place a cheap troop to body-block the tank.",
+    "rationale": "The tank has too much HP for a spell to matter, but the support provides the DPS that kills our tower. Removing the support with Fireball neutralizes the push and lets cheap troops mop up the lone tank for a positive overall trade.",
+    "priority": 2
+   },
+   {
+    "name": "Bank the spell when below threshold; never cast under-elixir into a counterpush",
+    "trigger": "Our elixir is below the spell cost (<4 for Fireball, <3 for Arrows, <2 for Zap) OR casting would drop us below 2 elixir while an enemy counterpush is forming.",
+    "action": "Do not cast. Defend with the cheapest available troop and wait until elixir refills before spending the spell.",
+    "rationale": "Spending the last of our elixir on a spell leaves no answer to the follow-up troop. Spell value is highest when paired with elixir to respond; over-committing elixir to a spell is how starter bots get punished on the counter.",
+    "priority": 3
+   },
+   {
+    "name": "Arrows the Princess / lone glass-cannon ranged before it chips the tower",
+    "trigger": "Enemy deploys a Princess, lone Dart Goblin, or sniping ranged unit safely behind/at the river that will free-chip our tower AND Arrows (3) is up.",
+    "action": "Cast Arrows centered directly on the Princess/Dart Goblin.",
+    "rationale": "Princess (3) chips the tower from max range for the whole match if unanswered; Arrows (3) one-shots her for a neutral trade and stops compounding tower damage. This is the rare case where spelling a single unit is correct because it is a persistent ranged chip threat, not a cheap meatshield.",
+    "priority": 3
+   }
+  ],
+  "antipatterns": [
+   "Fireballing a single 1-2 elixir unit (lone Skeleton, lone Goblin, single Spear Goblin) \u2014 a guaranteed -2 or -3 elixir trade and the most common starter-bot leak.",
+   "Using Fireball on a wide, low-HP swarm (Skeleton Army / Minion Horde) where Arrows would kill it cheaper and cover more area \u2014 overpaying and under-covering at once.",
+   "Wasting Arrows or Fireball on what Zap already kills (Skeletons, lone Goblins, Bats), bleeding 1-2 extra elixir every cycle.",
+   "Spelling a tank directly (Giant/Golem) \u2014 the spell barely dents it while the squishy support that actually kills the tower walks free.",
+   "Casting a spell the instant it is off cooldown with no value target on the field, instead of banking it for a cluster.",
+   "Trying to 'finish' a tower with a spell that deals less than the tower's remaining HP \u2014 chips it but wastes the spell, leaving nothing for the next defense.",
+   "Casting the last of our elixir on a spell during an enemy push, leaving zero elixir to answer the follow-up troop.",
+   "Misaiming Fireball/Arrows so the radius catches only one unit when shifting the center 1 tile would have caught two or three.",
+   "Holding Fireball forever waiting for a 'perfect' triple-cluster while the enemy chips our tower with units we could have positive-traded against.",
+   "Zapping a high-HP target expecting a kill (Knight, Musketeer at full HP) \u2014 Zap only resets/finishes, it does not kill medium-HP troops outright."
+  ]
+ },
+ {
+  "dimension": "Lane management and threat assessment: which lane to defend, single vs split lane pressure, defending the lane you have less protection on",
+  "principles": [
+   {
+    "name": "Defend the lane the enemy actually committed to",
+    "trigger": "An enemy ground troop crosses the river or is placed in the enemy back on a specific side (left/right), and no enemy unit threatens the opposite lane",
+    "action": "Place your defensive answer (Knight/Mini P.E.K.K.A/Valkyrie for tanks, Archers/Musketeer/Spear Goblins for air or swarm) on the SAME lane as the incoming threat, in front of the targeted Princess Tower so it intercepts before the unit reaches the bridge.",
+    "rationale": "Splitting attention defends nothing. A starter bot must answer the real threat, not pre-place on the empty lane. Reacting to committed pressure is the single highest-value habit.",
+    "priority": 1
+   },
+   {
+    "name": "Identify the weaker lane by tower HP and bias defense toward it",
+    "trigger": "One Princess Tower is below ~60% HP (e.g. under ~850 HP for an Arena-1-6 level tower) while the other is near full, and a new enemy push is forming",
+    "action": "When a threat could hit either side or you must pre-commit (e.g. enemy starts a split/double-lane push), prioritize defending the low-HP tower: place your tank-killer or swarm there first, and accept chip on the healthy tower. If both lanes are threatened, sacrifice value on the healthy side.",
+    "rationale": "Losing the already-damaged tower ends the game; the healthy tower can absorb more chip. Protect the asset closest to dying.",
+    "priority": 2
+   },
+   {
+    "name": "Do not split your own elixir across two lanes when behind on elixir",
+    "trigger": "Your elixir is below 6 AND there is exactly one active enemy threat on one lane",
+    "action": "Commit your full defensive response to the one active lane. Hold the opposite lane empty; do not place a building or troop on the quiet lane 'just in case'.",
+    "rationale": "At low elixir, double-lane defending leaves both responses under-supported and you lose both trades. Concentrate force where the actual unit is.",
+    "priority": 2
+   },
+   {
+    "name": "Counterpush in the lane where your surviving defenders ended up",
+    "trigger": "You just defended and have surviving troops (e.g. Knight at ~50%+ HP, Musketeer alive) standing in one lane, and your elixir is at least 5",
+    "action": "Push that SAME lane: walk the surviving unit toward the enemy bridge and add a support card (Musketeer/Archers behind a tank) on that lane. Do not march survivors back across to the other lane.",
+    "rationale": "Survivors already moving forward in a lane create a free counterattack; switching lanes wastes their position and travel time. Single-lane pressure off a successful defense is the core starter win condition.",
+    "priority": 2
+   },
+   {
+    "name": "Treat a bridge-spam / fast win-condition card as a forced same-lane response",
+    "trigger": "A fast win condition reaches the bridge on one lane: Hog Rider, Battle Ram, Ram Rider, or a Prince/Mini P.E.K.K.A bee-lining a tower",
+    "action": "Immediately place a body-blocker IN that lane between the bridge and the targeted tower: Knight/Valkyrie/Skeletons/Goblins directly in the unit's path, slightly ahead of the tower, on the same side. Never answer a Hog with a card on the other lane.",
+    "rationale": "Fast win conditions ignore the off-lane entirely; only a same-lane block stops tower damage. Mis-laning here gives free hits every time.",
+    "priority": 1
+   },
+   {
+    "name": "When the enemy splits troops across both lanes, defend the bigger-damage lane and chip the other with the tower",
+    "trigger": "Enemy places units on BOTH lanes in the same window (e.g. a Giant on left and Goblins on right), and your elixir is under 8",
+    "action": "Send your strongest single defender to the lane with the higher-damage / tank threat (the Giant side); let your Princess Tower auto-target the smaller threat on the other lane, optionally adding one cheap card (Skeletons/Spear Goblins) only if elixir allows after the main answer.",
+    "rationale": "You cannot fully cover both at low elixir. Towers handle small swarms alone; the tank lane is where unanswered damage compounds. Allocate the scarce defender to the lane that hurts most.",
+    "priority": 3
+   },
+   {
+    "name": "Hold defensive elixir, do not pre-deploy on the lane you fear",
+    "trigger": "It is the opening 60 seconds (single-elixir), enemy has made no committal play, and your elixir is climbing past 8",
+    "action": "Place a positive-elixir-trade card (Knight or Musketeer in the BACK center, not at the bridge) so it can flex to either lane as the enemy reveals their push; do not drop it pinned to one tower's lane.",
+    "rationale": "Center-back placement keeps lane choice open until the enemy commits, avoiding wasted elixir on the wrong lane. Pre-committing a lane this early is a guess.",
+    "priority": 3
+   },
+   {
+    "name": "In double elixir (after 2:00 / overtime), defend the lane under attack but always leave a same-lane counter ready",
+    "trigger": "Match time past 2:00 OR overtime, your elixir regenerates fast (>=9 frequently), and one lane is being attacked",
+    "action": "Defend the attacked lane with an efficient answer, and as soon as the threat is neutralized, immediately reload a win-condition or tank+support on that same lane to keep pressure. Pick the lane with the lower-HP enemy tower as your offensive target when you have a free choice.",
+    "rationale": "In double elixir, passively defending loses; converting same-lane defense into pressure on the enemy's weaker tower wins the race. Attacking their already-damaged tower closes games.",
+    "priority": 3
+   },
+   {
+    "name": "Use buildings/spawners centrally so they pull from either lane",
+    "trigger": "You hold a defensive building (Cannon/Tombstone/Bomb Tower) and the enemy win condition can target either lane (e.g. Hog/Giant still in back, lane unrevealed)",
+    "action": "Place the building slightly toward the center, ~4 tiles in front of the King Tower bridge-side, so its pull radius reaches both bridges and it can drag a Hog/Giant from whichever lane it commits to.",
+    "rationale": "A centered building hedges the lane guess and maximizes pull value; lane-pinned buildings only help if you guessed the lane correctly.",
+    "priority": 4
+   },
+   {
+    "name": "Don't chase an off-lane bait while your defended lane reloads",
+    "trigger": "You defended lane A; enemy now drops a single cheap unit (Goblins/Skeletons) on lane B purely to bait a reaction, while their main elixir is spent",
+    "action": "Let the lane-B Princess Tower handle the cheap unit alone; keep your elixir and surviving lane-A troops for your counterpush instead of overcommitting to the bait lane.",
+    "rationale": "Cheap off-lane drops after a failed push are bait to break your counter. Towers solo small units; preserving your counterpush is worth more than the tiny chip prevented.",
+    "priority": 4
+   }
+  ],
+  "antipatterns": [
+   "Mirroring the enemy's lane: dropping a defender on the opposite (empty) lane when the threat is clearly on the other side, leaving the real push unanswered.",
+   "Splitting every defense across both lanes by reflex, so each lane gets a half-strength response and both trades are lost.",
+   "Ignoring tower HP: defending the full-health tower hard while letting an already-low tower take repeated chip until it falls.",
+   "Answering a Hog Rider / Battle Ram with a card placed on the other lane or behind the tower, where it never intercepts before tower damage lands.",
+   "Marching surviving defenders back across the map to the other lane after a successful defense, wasting their counterpush potential.",
+   "Pre-committing a lane in the first 30 seconds (e.g. placing a Musketeer pinned to one tower) and getting punished when the enemy pushes the opposite lane.",
+   "Overreacting to a cheap off-lane bait (single Skeletons/Goblins) by spending a big card, then having nothing for the real push.",
+   "Placing a defensive building hard against one lane so it cannot pull a win condition that commits to the other lane.",
+   "Stacking all elixir into one mega-push on a single lane with zero defense held, then getting three-crowned when the counterpush hits the undefended other lane.",
+   "Continuing to feed the lane where the enemy has a strong defensive troop (e.g. throwing units into a Valkyrie) instead of switching pressure to the weaker, less-protected lane."
+  ]
+ },
+ {
+  "dimension": "Cycle and hand awareness: knowing your 4-card hand and next card, cheap cycling to your win condition, not playing cards you need defensively (starter-style Giant deck, Arena 1-6: Giant, Knight, Archers, Musketeer, Mini P.E.K.K.A, Minions, Arrows, plus one cheap cycle card)",
+  "principles": [
+   {
+    "name": "Hold the answer to the enemy win condition",
+    "trigger": "Enemy has a heavy win condition in their cycle (Giant/Golem/Hog/balloon class). Our single highest-DPS defensive card (Mini P.E.K.K.A, or Musketeer vs air) is currently in our 4-card hand AND we have no second hard-counter behind it.",
+    "action": "Do NOT spend that card on offense or chip. Play a cheap card (Minions, Archers, or the cheapest cycle card) to apply pressure or defend small threats instead, keeping the hard-counter in hand for when the heavy unit crosses the river.",
+    "rationale": "If you blow Mini P.E.K.K.A on a chip push, the next enemy Giant push lands undefended and costs a tower. The most expensive mistake in Arena 1-6 is having the counter sitting in the deck (unavailable for 4+ cards) when the win condition arrives.",
+    "priority": 1
+   },
+   {
+    "name": "Track the next card before committing elixir",
+    "trigger": "It is your turn to act and you can see your 4 hand cards plus the next-card preview (bottom-left). The card you are about to play would cycle a needed defensive card OUT of hand and bring a non-defensive card in.",
+    "action": "Compare next-card preview against the current board threat. Only play the card if the incoming next card still leaves you with a viable defense for the most likely enemy push. If it does not, play a different hand card (ideally the cheapest non-essential one).",
+    "rationale": "The next-card preview is free information that turns blind cycling into planned cycling. A bot that ignores it will repeatedly cycle its own counter away one card before it is needed.",
+    "priority": 1
+   },
+   {
+    "name": "Cycle cheap cards to reach the Giant on a positive trade",
+    "trigger": "You are at or near max elixir (9-10), no enemy threat is on your side of the river, and the Giant is NOT in your current hand (it is 2-4 cards deep).",
+    "action": "Play your cheapest card (Minions/Archers/cheap cycle card) at the back behind the King tower to rotate toward the Giant without overcommitting elixir, so the Giant comes up sooner for a clean back-line drop.",
+    "rationale": "Cheap cycling pulls your win condition into hand faster and prevents elixir overflow (wasted elixir at the 10 cap). Cycling at the back keeps the card safe from a fireball/arrows value play and starts a slow push.",
+    "priority": 2
+   },
+   {
+    "name": "Never play the Giant at low elixir without support in hand or next",
+    "trigger": "Giant is in hand, your elixir is below 7, AND neither your hand nor next-card preview contains a backup damage dealer (Musketeer/Archers/Mini P.E.K.K.A).",
+    "action": "Hold the Giant. Cycle a cheap card instead and wait until elixir is 8+ with a support card available, then drop Giant at the back so support can be added as it walks up.",
+    "rationale": "A lone Giant dies to the enemy tower and a single defender for zero value, wasting 5 elixir and your win condition for the next ~8 cards. Giant only works behind a support unit it can tank for.",
+    "priority": 2
+   },
+   {
+    "name": "Keep a swarm/splash answer in reserve against enemy swarm",
+    "trigger": "Enemy has shown swarm units (Skeleton Army, Goblin Gang, Minion Horde, Spear Goblins) and your splash/area answer (Arrows, or a splash troop) is in hand.",
+    "action": "Do not use Arrows on a single low-value target. Reserve it for a 4+ unit swarm cluster or a Minion Horde. Defend incidental swarms with Knight/Musketeer body-blocks until a high-value Arrows opportunity appears.",
+    "rationale": "Arrows is your only reliable swarm wipe in this deck. Spending it on 2 spear goblins leaves you defenseless against a 6-elixir Minion Horde that then deletes your Musketeer or a tower.",
+    "priority": 2
+   },
+   {
+    "name": "Defend with elixir-efficient body blocks, save the kill cards",
+    "trigger": "A single ground troop (Knight, Mini P.E.K.K.A, Valkyrie-class) is pushing and your high-value defenders are also your offensive support cards.",
+    "action": "Use the cheapest sufficient defender: Knight to body-block and tank, Archers/Minions to finish from behind, placed so the tower also shoots. Avoid spending Musketeer or Mini P.E.K.K.A if a cheaper combo defends, so the expensive cards stay free to support your next Giant push.",
+    "rationale": "Every Musketeer used purely on defense is a Musketeer not available to support your Giant. Cheap kiting plus tower damage defends most single threats for a positive elixir trade and preserves your offensive core.",
+    "priority": 3
+   },
+   {
+    "name": "Stop cycling and bank elixir when an enemy push is imminent",
+    "trigger": "Enemy is at high elixir (visibly holding/at ~10) or has just placed a tank at the back, and you are below 6 elixir.",
+    "action": "Stop cheap-cycling. Hold cards and let elixir regenerate to 8-10 so you can field a full defensive answer (defender plus support) when the push commits, rather than cycling yourself into an empty-handed defense.",
+    "rationale": "Cycling burns the elixir you will need to defend the incoming push. Being card-rich but elixir-poor against a committed Giant push loses towers.",
+    "priority": 3
+   },
+   {
+    "name": "Use double-elixir to over-cycle to a second Giant",
+    "trigger": "Match time is in double-elixir (last 60s of normal time, or overtime), you hold a tower lead or parity, and the Giant is deep in your cycle.",
+    "action": "Aggressively cheap-cycle (play two cheap cards back-to-back) to bring the Giant up fast, then commit Giant plus support immediately since elixir refills in half the time and you can still defend.",
+    "rationale": "In 2x elixir the cost of cycling is halved, so reaching your win condition repeatedly is cheap and the tempo advantage compounds. Slow single-Giant cycling wastes the double-elixir window.",
+    "priority": 4
+   },
+   {
+    "name": "Mirror your hand state to elixir parity, not just card count",
+    "trigger": "You have a full hand (no card pending) but elixir is low (under 5), or you have low cards available but high elixir.",
+    "action": "When card-rich and elixir-poor, wait and react defensively only. When elixir-rich and approaching the cap, play your cheapest safe card at the back to avoid overflow while keeping defenders. Match the tempo of plays to elixir regen, not to an urge to act.",
+    "rationale": "Bots tend to fire as soon as a card is affordable, draining elixir and leaving them unable to respond. Tracking the joint (hand, elixir) state is what separates planned cycling from reactive flailing.",
+    "priority": 4
+   }
+  ],
+  "antipatterns": [
+   "Playing Mini P.E.K.K.A (or the only Giant-counter) on offense or for chip, then having nothing in hand when the enemy Giant push arrives.",
+   "Spamming the cheapest card every time elixir allows, draining to 0-2 elixir right before an enemy push commits.",
+   "Cycling the Giant away (playing it as a lone tank at low elixir with no support), wasting the win condition for the next ~8 cards.",
+   "Using Arrows/splash on a single weak target (1-2 spear goblins), leaving no answer for a later Minion Horde or Skeleton Army.",
+   "Ignoring the next-card preview and cycling a needed defensive card out of hand one move before it was required.",
+   "Letting elixir overflow at the 10 cap (wasting regen) instead of back-cycling a cheap card.",
+   "Defending a single Knight with the Musketeer when a Knight body-block plus tower would do, burning the offensive support card.",
+   "Reacting to every enemy card immediately instead of waiting for elixir to bank a full defensive response.",
+   "Treating hand awareness as card-count only and committing while elixir-poor, ending up unable to support or defend.",
+   "Slow single-Giant cycling during double elixir, wasting the cheapest cycling window of the match."
+  ]
+ },
+ {
+  "dimension": "Tempo and timing: offense at double/triple elixir, last-second defensive placements, pre-placing for the next push",
+  "principles": [
+   {
+    "name": "Commit a big push only after double elixir starts",
+    "trigger": "match_time <= 60s remaining (i.e. clock past 2:00 mark, double elixir active) AND our_elixir >= 9",
+    "action": "Drop a tank (Giant) in the back corner at our king tower line, then add a support card (Musketeer/Archers) behind it as elixir regenerates. Build the push from the back so it reaches the bridge fully fortified.",
+    "rationale": "At 2x elixir, you can afford a tank+support combo and still hold a defensive reserve. Big back-of-map pushes before double elixir leak elixir and get punished by a counter-push; after double elixir the regen covers the investment.",
+    "priority": 1
+   },
+   {
+    "name": "Never tank-dump at the bridge with low elixir",
+    "trigger": "our_elixir < 7 AND we are considering placing a tank (Giant) at the bridge (y near enemy side)",
+    "action": "Do NOT place the tank. Instead hold, or place a 2-3 cost defensive unit (Archers/Knight) in our half to defend, and wait until elixir >= 9 before starting an offensive tank.",
+    "rationale": "A tank with no support is free value for the opponent; they defend it for less elixir and counter-push. Tempo means spending only when you can complete the combo.",
+    "priority": 1
+   },
+   {
+    "name": "Defend with last-second drops to pull and surround",
+    "trigger": "enemy ground troop (Giant/Knight/Mini P.E.K.K.A) has crossed the bridge and is in our half, distance to our tower roughly 1-2 tiles before tower range",
+    "action": "Place a Knight or Skeletons directly in the path one tile in front of the tower so the unit aggros onto them, and place a swarm/ranged card (Archers/Spear Goblins) on the opposite side of the enemy unit to surround it. Time the drop so troops spawn just as the enemy enters tower range.",
+    "rationale": "Placing defenders too early lets the enemy reposition or lets a spell wipe them; last-second placement maximizes tower-shot count plus your DPS and prevents a follow-up spell from getting value on a clustered defense.",
+    "priority": 2
+   },
+   {
+    "name": "Pull split-lane / hog-style fast units with a building or center placement",
+    "trigger": "enemy plays a fast win-condition (Hog Rider / fast lone troop) at the bridge targeting one tower",
+    "action": "Drop a Knight (or building if in deck) in the center-ish tile so the troop walks toward it, off the direct tower line; if it's a Hog, place the Knight slightly in front and toward the river to body-block before the tower takes hits.",
+    "rationale": "Redirecting fast win conditions denies tower damage and resets enemy tempo for minimal elixir, a hallmark of clean defensive timing.",
+    "priority": 2
+   },
+   {
+    "name": "Pre-place a defensive support behind the king while attacking the other lane",
+    "trigger": "we have an active push in lane A AND our_elixir >= 8 AND enemy_elixir likely high (they have not spent recently)",
+    "action": "Drop a cheap ranged unit (Archers/Spear Goblins) in the back-center behind the king tower. It walks up slowly and is ready to defend a counter-push in either lane.",
+    "rationale": "Pre-placing converts otherwise-idle elixir into board presence that defends the inevitable counter-push without committing to the bridge, keeping you tempo-positive on both lanes.",
+    "priority": 3
+   },
+   {
+    "name": "Open the counter-push immediately off a successful defense",
+    "trigger": "a defending unit (Knight/Musketeer) survived defense with >40% HP AND it is now in our half with no enemy threat present",
+    "action": "Add one tank or another support behind the surviving unit to convert the defensive remnant into an offensive push as it walks to the bridge; do not start fresh from the back.",
+    "rationale": "Surviving defenders are 'free' elixir already on the board; building off them produces a push the opponent must answer while they are elixir-down from their failed attack.",
+    "priority": 3
+   },
+   {
+    "name": "Hold a spell for the moment troops cluster on offense",
+    "trigger": "our offensive tank is near the enemy tower AND enemy has placed 2+ low-HP defenders (Skeletons/Goblins/Archers) clumped to kill it",
+    "action": "Cast a small spell (Arrows/Zap/Fireball if in deck) on the clustered defenders, then let the tank connect to the tower.",
+    "rationale": "Spending the spell reactively on a cluster, not pre-emptively, gets maximum value and clears the path so your committed tank push actually lands tower damage.",
+    "priority": 3
+   },
+   {
+    "name": "Force chip damage in the final 30 seconds when behind",
+    "trigger": "match_time <= 30s remaining AND we are behind on towers/HP AND our_elixir >= 6",
+    "action": "Send a fast cheap win condition or pressure unit (Hog/Giant with one support, or a Battle Ram-style commit if in deck) at the weakest enemy tower (lowest HP); spend down to near-zero since elixir at game end is wasted.",
+    "rationale": "Saved elixir is worthless at time-out; in the closing window aggression is mathematically correct because there is no counter-push to fear.",
+    "priority": 4
+   },
+   {
+    "name": "Do not over-commit when ahead late",
+    "trigger": "match_time <= 60s remaining AND we are ahead (one tower up OR significant HP lead) ",
+    "action": "Play defensively: hold elixir at 6-8, drop only defensive units to neutralize enemy pushes, and avoid sending offensive tanks that could be turned into a tower-equalizing counter-push.",
+    "rationale": "When ahead near time, the win condition is denying the opponent; conservative tempo protects the lead instead of gambling it.",
+    "priority": 4
+   },
+   {
+    "name": "Cycle a cheap card to fix a bad hand before double elixir",
+    "trigger": "single elixir (match_time > 60s remaining) AND our hand has no playable combo (e.g. only high-cost cards) AND no enemy threat on board",
+    "action": "Play the cheapest card (Skeletons/Spear Goblins) in a safe back tile to rotate it out and reach your win condition / support card for the double-elixir push.",
+    "rationale": "Deliberate cycling sets up the strong double-elixir push at near-zero cost and avoids being caught with an unplayable hand when the big-elixir phase opens.",
+    "priority": 5
+   }
+  ],
+  "antipatterns": [
+   "Dropping a lone Giant/tank at the bridge with under 7 elixir, giving the opponent a free defense and counter-push.",
+   "Placing defensive troops far behind the tower the instant an enemy crosses the bridge, letting a spell wipe them or the enemy reposition before they engage.",
+   "Spending a spell pre-emptively on empty ground or a single low-value unit instead of waiting for the enemy defenders to cluster.",
+   "Starting a fresh back-of-map push during single elixir, leaking elixir and arriving at the bridge with no reserve to defend the counter.",
+   "Sitting at max (10) elixir and overflowing instead of pre-placing a back-line support or cycling a cheap card.",
+   "Sending offensive tanks across the bridge while ahead in the final minute, handing the opponent material to build a tower-equalizing counter-push.",
+   "Hoarding elixir into the final timeout while behind, ending the game with unspent elixir that could have chipped a tower.",
+   "Splitting elixir across both lanes at once with no completed combo in either, so each push is too weak to threaten a tower.",
+   "Reacting to a Hog/fast unit by placing a defender directly on the tower line behind it, so the troop still gets full tower hits before the defender turns around.",
+   "Ignoring a defensive survivor (high-HP Knight/Musketeer) and starting a new push from the back instead of building off the free unit already on the board."
+  ]
+ },
+ {
+  "dimension": "Not overcommitting and reading the opponent: hold cards in reserve, react to what opponent plays, bait out counters",
+  "principles": [
+   {
+    "name": "Never open on a full-elixir push at the back",
+    "trigger": "Match time is in the first 30s (single elixir, time > 2:30 remaining) AND our elixir is at or near 10 AND opponent has not committed a unit across the river",
+    "action": "Play nothing, or place ONE cheap cycle card (Skeletons/Goblins/Knight, cost <=3) at the back center tile. Do NOT drop a win-condition (Giant/Hog) + support behind king tower.",
+    "rationale": "At 10 elixir you waste regenerated elixir if you hold, but committing a 7-9 elixir push with zero information lets the opponent counter-push for a clean trade or chip. Dropping one cheap card keeps elixir flowing without revealing your plan and lets you see their answer first.",
+    "priority": 1
+   },
+   {
+    "name": "Hold the win condition until opponent's anti-tank is identified or out of cycle",
+    "trigger": "We have our win-condition card (Giant/Hog/Balloon/Royal Giant) ready in hand AND we have NOT yet seen the opponent play a building or a high-DPS swarm (e.g. Inferno Tower, Cannon, Tombstone, Skeleton Army, Minion Horde)",
+    "action": "Cycle cheap cards and defend only. Wait until the opponent has spent their primary counter on defense elsewhere, then commit the win-condition on the SAME lane the counter just left.",
+    "rationale": "Win conditions die cheaply to the right counter. Throwing the Hog into an un-scouted base risks it walking into a Cannon for a 4-for-1 elixir loss. Deploying after the counter is on cooldown maximizes tower damage per push.",
+    "priority": 1
+   },
+   {
+    "name": "React to the opponent's lane commitment, do not pre-commit defense",
+    "trigger": "Opponent has placed a ground tank (Giant/Knight/Valkyrie) or air unit on one specific lane AND it is past the bridge or clearly committed",
+    "action": "Place defenders in that lane ONLY, dropped to pull/distract (Knight or Skeletons in front center to pull aggro, swarm behind to DPS). Keep the other lane's defenders in hand.",
+    "rationale": "Splitting defense or guessing the lane early wastes elixir. Waiting until the tank is committed lets you place the cheapest sufficient counter and bank the difference for a counter-push.",
+    "priority": 2
+   },
+   {
+    "name": "Defend with positive elixir trades, then counter-push with the survivors",
+    "trigger": "Our defending units (Knight/Valkyrie/Musketeer) survive the defense with >40% HP AND opponent spent more elixir on the attack than we spent defending",
+    "action": "Do NOT add cards immediately. Let the surviving unit walk toward the enemy tower, then drop ONE support behind it (e.g. Musketeer behind surviving Knight) once it crosses the river.",
+    "rationale": "The strongest offense in starter decks comes from defenders that survive. Adding cards prematurely (before crossing river) gives the opponent time to set up; the elixir advantage from the trade funds a safe push.",
+    "priority": 2
+   },
+   {
+    "name": "Bait the opponent's spell or swarm-counter before committing your key support",
+    "trigger": "Opponent has a known small spell (Zap/Arrows/Snowball seen earlier) AND we want to land a swarm support unit (Spear Goblins/Goblins/Minions/Skeleton Army)",
+    "action": "First send a cheap expendable swarm (Skeletons, 1 elixir) into the push as bait. If they spend the spell on it, THEN deploy the higher-value swarm or Minion Horde on the next push.",
+    "rationale": "Air/swarm support gets wiped by one Zap/Arrows. Forcing the spell out with a 1-elixir bait turns your real swarm into uncontested DPS, a large net swing.",
+    "priority": 3
+   },
+   {
+    "name": "Keep at least one hard counter to the opponent's win condition in reserve at all times",
+    "trigger": "Opponent's win-condition has been identified (e.g. they run Hog/Giant) AND the card that best counters it is in our hand or about to cycle in",
+    "action": "Do NOT spend that counter card on offense or minor defense. Hold it. Defend chip with cheaper cards and reserve the counter exclusively for their win-condition pushes.",
+    "rationale": "If you burn your Cannon/Knight/swarm on a minor threat, the opponent's main push lands uncontested. Reserve-management of the key counter is the difference between leaking a tower and shutting the deck down.",
+    "priority": 2
+   },
+   {
+    "name": "Mirror or match elixir before going aggressive in double-elixir",
+    "trigger": "Match time is in double-elixir (time < 1:00 in regular, or overtime) AND opponent has just made a large commitment on one lane",
+    "action": "Defend that lane efficiently, count their remaining elixir (they are now low), and immediately deploy your win-condition + support on the OPPOSITE lane while they cannot answer.",
+    "rationale": "Overcommitting in double elixir is punished hardest because both players regenerate fast. Punishing THEIR overcommit on the open lane is the cleanest tower damage in the game.",
+    "priority": 3
+   },
+   {
+    "name": "Stop adding to a push that has met a hard counter",
+    "trigger": "Our committed push (e.g. Giant + Musketeer) is being shut down by a building (Inferno/Cannon) or a strong defensive unit AND adding cards would only feed the defense",
+    "action": "Cut the push. Stop deploying support. Save elixir, let the push die, and regroup for the next cycle rather than chasing sunk cost.",
+    "rationale": "Reinforcing a dead push is the classic overcommit that loses games. Recognizing a lost push and banking elixir flips you into a defensive elixir lead.",
+    "priority": 3
+   },
+   {
+    "name": "Use elixir-count tracking to time the all-in",
+    "trigger": "We can infer opponent is below ~4 elixir (they just spent a big push or a high-cost defensive card) AND our win-condition is in hand",
+    "action": "Immediately deploy win-condition on the lane they are least able to defend; the deficit means their counter is not available.",
+    "rationale": "Reading opponent elixir is the core of not overcommitting. Attacking into a known deficit is mathematically the safest aggression.",
+    "priority": 4
+   },
+   {
+    "name": "Default to defense when in doubt or when behind on cards in hand",
+    "trigger": "We have <5 elixir AND no clear read on opponent's plan AND no immediate threat on the field",
+    "action": "Hold. Do not place anything until either elixir reaches a safe threshold (>=7) or the opponent reveals a threat.",
+    "rationale": "Idle holding with a small elixir buffer preserves the ability to respond to anything. Premature plays from a weak position are the root cause of overcommitment.",
+    "priority": 4
+   }
+  ],
+  "antipatterns": [
+   "Opening the match by dropping a full 7-10 elixir push behind the king tower with zero information about the opponent's deck, leaving nothing to defend the counter-push.",
+   "Playing the win-condition (Hog/Giant) into an un-scouted base and feeding it to an unseen Cannon/Inferno/Skeleton Army for a 4-for-1 loss.",
+   "Spending the only hard counter to the opponent's win-condition on a trivial chip threat, then leaking a tower to the real push.",
+   "Splitting defenders across both lanes before the opponent has committed, halving DPS in the lane that actually gets attacked.",
+   "Reinforcing a push that has already hit a hard counter (e.g. stacking units into an Inferno Tower), throwing good elixir after bad.",
+   "Deploying air/swarm support into a known-spell deck without baiting the Zap/Arrows first, getting the whole swarm one-shot.",
+   "Reacting to every single enemy card placement immediately instead of waiting to see lane commitment, draining elixir on premature counters.",
+   "Always playing a card the instant elixir hits 10, dumping it on offense even when defense is the correct posture.",
+   "Counter-pushing by adding support cards behind a surviving unit while it is still on our side, giving the opponent full time to set up a counter before it crosses the river.",
+   "Treating every defensive card the same and burning the cheapest-but-most-versatile card (Knight) on a threat a 1-elixir Skeletons swarm could have handled."
+  ]
+ },
+ {
+  "dimension": "Tower targeting and chip damage: chipping with spells/cheap units, focusing one tower, when a small chip lead wins on time",
+  "principles": [
+   {
+    "name": "Commit to one tower from the first push",
+    "trigger": "Match time > 0:00 and we have not yet dealt damage to either enemy crown tower; both enemy princess towers at full HP (e.g. ~1400-1500 HP at Arena 1-6 tower levels).",
+    "action": "Choose the LEFT enemy princess tower as the focus target (deterministic pick so all damage compounds on one tower). For the rest of the match, route ground win conditions (Giant, Knight, Mini P.E.K.K.A) and support down the LEFT lane, deploying the tank at the back tile of our left lane (1 tile from the back, left side) when elixir >= the tank's cost.",
+    "rationale": "A 1000-HP tower split as 500+500 across two towers wins nothing; the same 1000 concentrated on one tower can take it (3-crown threat) and forces the opponent to overcommit defense, which is what converts chip into a win. Spreading damage is the single biggest chip-strategy error.",
+    "priority": 1
+   },
+   {
+    "name": "Cycle a chip card onto the focus tower whenever the lane is open",
+    "trigger": "Focus tower's lane has NO enemy defensive troop currently within ~4 tiles of the bridge on our side, our elixir >= cost of cheapest cycle unit (Knight 3, Archers 3, Spear Goblins 2, Skeletons/Bats 1-2), and we are not mid-defense (no enemy push with combined elixir > 4 crossing the river).",
+    "action": "Send the cheapest cycle troop alone over the bridge into the focus lane (deploy 1 tile in front of the bridge on the focus side). Goal is unanswered tower damage, not a kill. If they ignore it, it chips; if they answer it, you traded up in elixir and learned their hand.",
+    "rationale": "Free chip accumulates a time-win lead at near-zero risk. A lone 3-cost troop that lands even 100-200 tower damage unanswered, repeated across 3 minutes, is often the entire victory margin in Arena 1-6 where defenses are sloppy.",
+    "priority": 2
+   },
+   {
+    "name": "Spell the focus tower only when the spell pays for itself in value or closes a lethal gap",
+    "trigger": "CASE A (value): >= 3 enemy small units (Goblins/Skeletons/Spear Goblins/Princess-tier squishies, each <= ~150 HP) clustered within one spell radius AND that cluster sits on or adjacent to the focus tower. CASE B (finisher): focus tower HP <= our damage spell's tower damage (e.g. Fireball ~hundreds, Arrows less) AND match time <= 0:30 remaining OR we are in overtime.",
+    "action": "Drop the damage spell (Fireball preferred, else Arrows/Zap) centered to hit both the unit cluster AND the focus tower. In Case B with no units, only throw the spell at the tower if it is the killing blow or it secures a tie-break lead in overtime; otherwise hold it.",
+    "rationale": "Spell-cycling a tower for pure chip is usually negative elixir trade (you pay 3-4 to do a few hundred damage). It is only correct when the spell also kills value units (turning a loss into a win) or it is the literal finishing shot. Throwing Fireball at a tower for 'chip' early is a classic ladder leak.",
+    "priority": 3
+   },
+   {
+    "name": "Protect a small chip lead by trading down and refusing to overcommit after 1:00 remaining",
+    "trigger": "We are AHEAD by any tower-HP margin (track: our focus tower's dealt damage > damage taken on our most-damaged tower), match time <= 1:00 remaining (single-elixir or just into double), and an enemy push is forming.",
+    "action": "Switch to pure defense: only spend elixir on units that kill the incoming push with a positive elixir trade (e.g. Knight to tank+pull, Archers/Musketeer to DPS from behind the tower). Do NOT start a counter-push that empties your hand. Keep >= 4 elixir banked to answer the next play. Let the clock run; the chip lead is the win condition.",
+    "rationale": "In Arena 1-6, a fraction-of-a-tower lead wins on the time/score tiebreak if no tower falls. The failure mode is throwing away the lead by greedily attacking and getting counter-pushed. Defense + clock is the highest-EV line once ahead late.",
+    "priority": 4
+   },
+   {
+    "name": "Press the focus tower hard during double elixir when even, ignore the other lane",
+    "trigger": "Match time <= 1:00 remaining (double elixir active, ~2:00 mark onward) AND tower-HP differential is roughly even (no clear lead), AND focus tower is the lower-HP of the two enemy towers.",
+    "action": "Build a single committed push in the focus lane: tank (Giant/Knight) at back, then add 1-2 support (Musketeer/Archers/Mini P.E.K.K.A) behind it as elixir regenerates to ~8+. Funnel everything into the already-damaged focus tower to convert the existing chip into a crown. Never split a unit to the fresh lane.",
+    "rationale": "Double elixir is when leads are made. Pouring fresh elixir into the tower that already has accumulated chip needs far less new damage to crown it than starting over on the full-HP tower, so the marginal elixir is most efficient there.",
+    "priority": 5
+   }
+  ],
+  "antipatterns": [
+   "Splitting damage across both enemy towers so neither ever falls and the chip lead is too small to matter on the tiebreak.",
+   "Switching the focus tower mid-match (e.g. attacking left then right) because a unit happened to spawn there, resetting all accumulated chip progress.",
+   "Fireballing/Zapping the enemy tower for pure chip early game when no units are hit, bleeding a negative elixir trade every cycle.",
+   "Starting a fresh counter-push while already ahead in the last minute, emptying the hand and getting punished by an enemy counter that crowns OUR tower and erases the lead.",
+   "Sending the win-condition tank alone over the bridge with zero support repeatedly, feeding it to defenders for no tower damage instead of using cheap throwaway chip troops.",
+   "Holding the damage spell all game 'for value' and never using it as the literal finishing blow when the focus tower is in spell-kill range in overtime.",
+   "Ignoring an incoming enemy push to keep chipping, trading your own near-full tower for a few hundred chip damage (net tower-HP loss).",
+   "Treating overtime as 'attack everything': blindly committing both lanes in tiebreak and getting three-crowned instead of defending the lead and forcing first-tower wins."
+  ]
+ },
+ {
+  "dimension": "Opening moves: best first plays (often wait/cycle a cheap card at the back), do not leak elixir, gather information",
+  "principles": [
+   {
+    "name": "Hard-stall at full elixir during the opening double-elixir-build phase",
+    "trigger": "match_time < 0:08 elapsed (i.e. first ~8 seconds), our_elixir < 10, AND enemy has played zero cards (no enemy units on the arena, enemy elixir bar visually low/unknown)",
+    "action": "Play NOTHING. Let elixir fill to exactly 10/10. Do not place any card while elixir < 10 and no enemy action exists to respond to. The single passable exception is starting a back-corner cheap cycle once elixir HITS 10 (see rule 2), never before.",
+    "rationale": "The opening of every match is a pure information game. Whoever commits first reveals their deck and cedes the initiative. Holding to 10 elixir loses nothing (you cannot bank past 10, but you also haven't leaked because the cap is not reached until ~9.5s from 0) and forces the opponent to either reveal first or also stall. At Arena 1-6 most opponents over-commit early; waiting punishes that for free.",
+    "priority": 1
+   },
+   {
+    "name": "Avoid the elixir-cap leak: spend the cheapest card the moment you would overflow 10",
+    "trigger": "our_elixir == 10 (capped) AND no enemy unit is on our side of the river requiring an immediate defensive response",
+    "action": "Drop your cheapest cycle card (e.g. Skeletons / Goblins / Ice Spirit / Minions, 1-3 elixir) at the BACK of the arena behind the King tower or just in front of it, on whichever lane you intend to pressure. Never let the bar sit at a full 10 for more than ~1 second of regeneration time, because every second at 10 is wasted regen (a leak). Prefer the 1-2 cost card so you re-open headroom immediately and keep the cheapest pieces in rotation.",
+    "rationale": "Sitting at 10/10 throws away ~1 elixir every 2.8s (1x) / 1.4s (2x). That is the only real 'leak' in the opening. Spending the absolute cheapest card at the back converts wasted regen into a developing push or a cycle while committing the least information and the least counterable value. Back placement means the card walks the full lane, giving you maximum time to react to the opponent's response before it reaches their tower.",
+    "priority": 2
+   },
+   {
+    "name": "Back-corner placement only, never bridge/front, for the opening cycle card",
+    "trigger": "We have decided to play a card during the opening (elixir at/near 10, no urgent defense), AND it is a non-spell, non-defensive-reaction card",
+    "action": "Place it in the back corner tile on your side (behind the King tower, far back-left or far back-right depending on target lane). Do NOT place at the bridge, do NOT place in the center, do NOT place in front of your own Princess tower mid-lane.",
+    "rationale": "Back placement gives ~6-8 seconds of travel time, during which the opponent must reveal a counter or let it through. If they reveal a counter, you have gathered information and can prepare your support; if they do nothing, you get chip + a built elixir advantage. Bridge/front placement is committal, immediately threatens, and invites a same-elixir trade that surrenders the information edge. It also lets the opponent counterpush directly into your side.",
+    "priority": 3
+   },
+   {
+    "name": "Never open with a spell or a high-cost win condition",
+    "trigger": "It is the opening (first play of the match) AND the candidate card is a spell (Arrows, Fireball, Zap, etc.) OR a 4+ elixir win condition (Giant, Hog Rider, Balloon, P.E.K.K.A) AND there is no enemy target on the field",
+    "action": "Skip that card. Filter the opening-play candidate set to cheap cycle cards (1-3 elixir, non-spell) only. Hold spells and win conditions until you have either a confirmed target (spell) or a built elixir lead / known enemy hand (win condition).",
+    "rationale": "Opening a spell with no target is a guaranteed total-value leak (the elixir hits nothing). Opening a heavy win condition with no support and a full enemy hand walks it into the opponent's strongest unrevealed counter at parity, the worst possible information position. Both are classic naive-bot blunders. Cheap cards keep options open and information cost minimal.",
+    "priority": 1
+   },
+   {
+    "name": "If the enemy commits first to one lane, respond on the SAME lane and prepare a counterpush, do not mirror-leak on the other lane",
+    "trigger": "Enemy places a unit/win condition at their bridge or back on a specific lane (lane = left or right) AND we have not yet committed our opening card",
+    "action": "Do not pre-emptively dump a card on the opposite lane. Hold elixir, let the enemy unit cross the river, and place your defensive/counter card on the SAME lane positioned to kill it (e.g. cheap swarm in front of a ground push, or air-targeting unit vs air). Then ride the surviving units back as a counterpush. Only after defending do you consider an offensive opening.",
+    "rationale": "Splitting your response to the opposite lane while they push yours leaks elixir on a non-threat and lets their push hit your tower at a discount. Defending on-lane and counterpushing is the highest-value opening response: you trade down, gain tempo, and learn their lead card. This is the single most important reactive opening pattern at low arenas where opponents lead with their win condition blindly.",
+    "priority": 2
+   },
+   {
+    "name": "Track and remember the enemy's first revealed card to anticipate their cycle",
+    "trigger": "Enemy plays their first card (any time in opening) \u2014 record its type, elixir cost, and lane",
+    "action": "Store enemy_revealed_cards += this card. Do not immediately counter-commit beyond what the threat requires. Use the revealed card to bias your next placements: e.g. if they revealed a swarm (Goblins/Skeleton Army), keep a small spell or splash unit in hand; if they revealed a tank, prioritize building a defensive distraction. Withhold your own win condition until at least one enemy card is known so you can place it in the lane opposite their counter.",
+    "rationale": "Card tracking is the core of the information game. At Arena 1-6 opponents typically have a single answer to your win condition; knowing what they've shown lets you time your push for when that answer is out of cycle. The opening is when the cheapest information is gathered, so the bot must explicitly log it rather than react play-by-play with no memory.",
+    "priority": 3
+   },
+   {
+    "name": "Mirror the stall: if both sides hold and elixir caps, take the cheap-cycle initiative on your stronger lane rather than waiting indefinitely",
+    "trigger": "match_time elapsed > 0:10, our_elixir == 10, enemy_units == 0 (enemy also stalling), no enemy card revealed yet",
+    "action": "Break the standoff by cycling your cheapest card to the back corner of your INTENDED push lane (the lane away from where you expect their counter, or simply your default win-condition lane). This starts building toward your win condition on a chosen lane while staying at minimal information cost. Do not over-invest; one cheap card only, then refill.",
+    "rationale": "Once both players are capped at 10, continued waiting becomes a mutual leak; the symmetry is broken only by spending. The cheapest possible spend on a chosen lane is the lowest-information, lowest-cost way to seize tempo and avoid throwing away regen. It also begins shaping the match toward your game plan instead of passively reacting.",
+    "priority": 4
+   },
+   {
+    "name": "Do not pre-place anti-air or splash 'just in case' before any enemy unit exists",
+    "trigger": "It is the opening, no enemy unit is on the field, AND candidate action is a defensive structure or defensive troop placed reactively-without-a-target (e.g. Cannon, Tesla, Musketeer placed in the back with nothing to shoot)",
+    "action": "Do not place defensive buildings/troops speculatively in the opening. Hold them. Only deploy a defensive building when an enemy win condition is committed and crossing, and place it on the 4-tile-from-river center 'pull' spot to maximize lane control at that moment.",
+    "rationale": "Speculative defense in the opening commits your counter before you know the threat, reveals your defensive answer for free, and often gets out-of-cycle by the time the real push arrives. Buildings especially have a deploy-then-decay clock; placing early wastes their lifespan. Hold the answer until the question is asked.",
+    "priority": 5
+   }
+  ],
+  "antipatterns": [
+   "Opening by playing a card the instant elixir reaches 4-5 (premature commitment) instead of waiting toward 10 \u2014 reveals your hand first and cedes the information edge.",
+   "Leading with the win condition (Giant/Hog/Balloon) at the bridge on the first play with no support and a full enemy hand \u2014 walks it into the opponent's strongest unrevealed counter at elixir parity.",
+   "Casting a spell (Arrows/Fireball/Zap) as the opening move with no enemy target on the field \u2014 a 100% wasted-elixir leak.",
+   "Placing the opening cycle card at the bridge or in front of your own tower instead of the back corner \u2014 gives the opponent no travel time to react to and surrenders counterpush potential.",
+   "Sitting at a capped 10/10 elixir for multiple seconds 'waiting for the perfect play' \u2014 silently leaks ~1 elixir every 1.4-2.8s of regen.",
+   "Splitting a response onto the opposite lane while the enemy pushes your lane \u2014 leaks elixir on a non-threat and lets their push chip your tower for free.",
+   "Pre-placing a defensive building or anti-air troop speculatively before any enemy unit exists \u2014 reveals your answer and wastes the building/troop lifespan clock.",
+   "Ignoring/forgetting the enemy's first revealed card and reacting move-to-move with no memory \u2014 throws away the cheapest information in the match.",
+   "Dumping two or three cards in the opening to 'apply pressure' before elixir or information justifies it \u2014 over-commits, leaks tempo, and gets counterpushed.",
+   "Mirroring the opponent's exact lane and card to 'trade evenly' in the opening \u2014 converts a free information-gathering window into a neutral parity trade that benefits the player with the better deck/skill."
+  ]
+ },
+ {
+  "dimension": "Low-arena matchups (Arena 1-6): beating beatdown/Giant push, swarm spam, spell-bait, and hog/fast-cycle with a starter-style deck (Knight, Archers, Musketeer, Mini P.E.K.K.A, Giant, Spear Goblins, Goblins, Arrows, Fireball, Minions, Bomber, Skeletons style cards)",
+  "principles": [
+   {
+    "name": "Never open by committing high-elixir win condition first",
+    "trigger": "match_time < 0:20 (first 20s of single-elixir) AND no enemy unit has crossed the river AND our elixir < 7",
+    "action": "Do NOT play Giant or any 4+ elixir card at the bridge. Either hold (let elixir bank to 10) or place a cheap defensive/cycle card (Skeletons, Spear Goblins, 1-2 elixir) at the back near the King tower to scout enemy reaction.",
+    "rationale": "Opening with the win condition lets the opponent counter-push into your weakest defensive state and discover your archetype. Reacting first preserves an elixir/information advantage that decides low-arena games where players overcommit.",
+    "priority": 1
+   },
+   {
+    "name": "Counter Giant beatdown: ignore the Giant, kill the support, swarm the tank",
+    "trigger": "Enemy Giant detected on enemy side (HP > 1500, moving toward a tower) AND one or more support troops (Musketeer/Archers/Wizard/Witch) placed behind it",
+    "action": "First, kill the support with a spell or a unit that outranges it: drop Musketeer/Archers on the OPPOSITE side of the support troop so the Giant cannot body-block, or Fireball/Arrows the clustered support if 2+ squishy units are grouped within one spell radius. Then place a high-DPS melee unit (Mini P.E.K.K.A or Knight) directly on top of the Giant once it is past the river so it tanks for nothing. Use the tower as your third damage source. Do not waste any card on the Giant alone until its support is dead.",
+    "rationale": "The Giant only deals tower damage; its support is what kills your defenders. Removing support first turns the Giant into free elixir. Mini P.E.K.K.A kills a Giant in roughly 4-5 hits; placing it on top minimizes the Giant's tower damage.",
+    "priority": 1
+   },
+   {
+    "name": "Pull the tank to the center with a building/cheap unit to split the push",
+    "trigger": "Enemy Giant (or Giant Skeleton/Royal Giant) committed to ONE lane AND it is approaching the bridge AND we have a building or a cheap melee unit available",
+    "action": "Place the defensive building (Cannon/Tombstone if in deck) or a cheap melee distraction (Knight/Goblins) in the dead-center tile between the two lanes / just inside the river on your side, so the Giant retargets toward the middle and walks diagonally. This drags the Giant away from the tower and buys 2-3 extra seconds of free defensive DPS while the support gets stranded.",
+    "rationale": "Center placement pulls single-target tanks off the direct tower path. Every second the Giant spends rerouting is free tower/defender damage and prevents a deep penetration.",
+    "priority": 2
+   },
+   {
+    "name": "Counter swarm spam (Skeleton Army, Goblin Gang, Minion Horde, Barbarians) with splash, not single-target",
+    "trigger": "Enemy plays 3+ small units (Skeletons, Goblins, Minions, Spear Goblins) simultaneously OR a horde card (Skeleton Army ~15 units, Minion Horde 6 units) on offense or to defend",
+    "action": "Respond with splash: Arrows (kills Skeleton Army, Goblins, Minion Horde, Princess outright), Bomber, Wizard, or Valkyrie. Use Arrows on ground horde / Minion Horde; use a Fireball only if the swarm is clustered with a support troop to two-for-one value. NEVER answer a swarm with a single-target unit (Musketeer/Mini P.E.K.K.A) alone. If swarm is defensive Skeleton Army on your tank, drop Arrows preemptively as the tank crosses.",
+    "rationale": "Splash damage one-shots swarms for a guaranteed positive trade; single-target troops get surrounded and die. Arrows at ~3 elixir kills a ~3-4 elixir swarm for clean value.",
+    "priority": 1
+   },
+   {
+    "name": "Beat spell-bait: do NOT use your splash spell on the bait card",
+    "trigger": "Enemy repeatedly plays cheap bait targets (Goblin Barrel, Goblin Gang, Skeleton Army, Princess, Dart Goblin) trying to draw out Arrows/Log/Fireball",
+    "action": "Hold your area spell. Defend the cheap bait with troops where possible (Knight/Archers tank-and-kill a Goblin Barrel; let the tower + a single unit handle Goblin Gang). Save Arrows/Fireball exclusively for the high-value target the opponent is hiding (their Minion Horde, their Princess, or a stacked counterpush). Only spend the spell when it kills 2+ units or a key squishy support, never on a lone bait.",
+    "rationale": "Spell-bait decks win by trading their 3-elixir bait for your 3-elixir spell, then punishing the lane your spell can no longer defend. Refusing the bait collapses their whole game plan.",
+    "priority": 2
+   },
+   {
+    "name": "Goblin Barrel specifically: pre-place a unit on the tower or tap the tower",
+    "trigger": "Enemy has shown Goblin Barrel before AND enemy elixir suggests a barrel is coming (or barrel animation thrown toward our tower)",
+    "action": "Drop a small splash/cheap unit (Knight, Archers, Bomber, or Skeletons) directly onto the tower's expected landing tile so the goblins are damaged/distracted on landing; the tower finishes them. Reserve Arrows ONLY if you cannot react in time, since the opponent wants that Arrows trade.",
+    "rationale": "Three goblins do heavy DPS if unanswered, but a single body on the tower plus tower hits clears them for ~2 elixir or less, denying the bait trade.",
+    "priority": 3
+   },
+   {
+    "name": "Counter Hog Rider / fast cycle: building or surround, defend at the tower not the bridge",
+    "trigger": "Enemy Hog Rider (or Battle Ram/Ram Rider) crosses the bridge targeting a tower AND match_time is in single-elixir",
+    "action": "Place a defensive building (Cannon/Tombstone) 4 tiles in front and slightly center of the threatened tower to pull the Hog away, OR if no building, surround the Hog with a cheap swarm (Skeletons/Goblins/Spear Goblins) placed slightly behind-and-beside the Hog so it cannot one-shot them and they out-DPS it. Knight placed on top also tanks 2-3 Hog hits. Accept ~1 small jump hit max; the goal is to give up at most one connection.",
+    "rationale": "Hog cycle wins by chip + cheap repeated pressure. A building resets its target every cycle for a positive elixir trade (Cannon 3 < Hog 4) and forces them to over-invest to break through.",
+    "priority": 1
+   },
+   {
+    "name": "Punish over-commitment on the opposite lane",
+    "trigger": "Enemy has dumped a heavy push (Giant + 2 support, or big swarm) on ONE lane AND their elixir is read as < 4 (low) AND our defense is stable / win condition (Giant/Hog) available",
+    "action": "After your defense neutralizes their push, immediately send your win condition + any surviving defenders down the OPPOSITE lane. Place Giant/Hog at the bridge so the counterpush hits before they regenerate elixir to defend.",
+    "rationale": "Low-arena opponents overcommit and can't defend two lanes. The counterpush off a successful defense is the single highest-EV play in the format because their elixir is spent and your defenders are already on the field free.",
+    "priority": 2
+   },
+   {
+    "name": "Defend efficiently to build a counterpush, never trade negative",
+    "trigger": "Any incoming enemy push AND our elixir <= enemy committed elixir",
+    "action": "Choose the cheapest card combination that fully neutralizes the threat (e.g., Knight + Archers vs a Giant+Musketeer), placing defenders so survivors live to counterpush. Prefer units that survive (Knight, Musketeer) over chump blocks when ahead on elixir; prefer minimum-elixir trades when behind. Always keep at least one splash answer (Arrows) in hand if the enemy deck contains a swarm.",
+    "rationale": "Low-arena games are won on cumulative elixir advantage. Surviving defenders convert defense into offense; negative trades compound into a lost tower.",
+    "priority": 2
+   },
+   {
+    "name": "Double/triple elixir (last 60s + overtime): switch to spell cycle and lane focus",
+    "trigger": "match_time >= 2:00 (double elixir) OR overtime AND towers are even or we are ahead by one tower",
+    "action": "Commit fully to ONE lane with win condition + full support stack since elixir regenerates fast enough to defend the other lane reactively. If a tower is low (< 400 HP), cycle Fireball/Arrows directly to the tower for the finish when no troop can reach it. If ahead, defend conservatively and only counterpush; do not open new offense that can be punished.",
+    "rationale": "In 2x/3x elixir, big pushes are sustainable and chip spells close games. Single-lane focus overwhelms the reactive defender; protecting a lead by trading down wins the clock.",
+    "priority": 3
+   },
+   {
+    "name": "Track and respect the enemy's splash/spell so your swarm is safe",
+    "trigger": "Enemy has used Arrows/Fireball/Log/Zap recently (within ~last cycle, card on cooldown) ",
+    "action": "When their splash answer is known-spent, deploy your swarm (Goblins/Minions/Skeletons) as offense or value defense, because they cannot instantly clear it. Conversely, if their splash is UP, do not bunch your small units; spread placements or lead with a tank.",
+    "rationale": "Swarm value is entirely conditional on the opponent's splash availability. Exploiting the spell-down window is free damage; ignoring it feeds clean spell value.",
+    "priority": 4
+   },
+   {
+    "name": "Air threats (Minions/Minion Horde/Baby Dragon): answer with ranged, never melee",
+    "trigger": "Enemy deploys any air unit (Minions, Minion Horde, Baby Dragon, Balloon) ",
+    "action": "Defend with ranged anti-air: Archers, Musketeer, Spear Goblins, or Arrows (Arrows one-shots Minions/Minion Horde). For a Balloon, prioritize Musketeer + distraction and tank its hit with a building if available. Never rely on ground melee (Knight/Mini P.E.K.K.A/Valkyrie) against air; they cannot hit it.",
+    "rationale": "Many low-arena losses come from a melee-heavy hand whiffing on air. Keeping a ranged/anti-air card in reserve is mandatory; Arrows is the cheapest hard answer to Minion Horde.",
+    "priority": 2
+   }
+  ],
+  "antipatterns": [
+   "Opening the match by dropping the Giant (or any 4+ elixir win condition) at the bridge on the first hand, handing the opponent a free counterpush into your empty back line.",
+   "Attacking the Giant directly with single-target troops while its Musketeer/Wizard support melts your defenders untouched.",
+   "Using a single-target unit (Musketeer, Mini P.E.K.K.A, Knight alone) to defend a Skeleton Army or Minion Horde and watching it get swarmed to death.",
+   "Spending Arrows/Fireball/Log on the FIRST cheap bait card (lone Goblin Gang, lone Goblin Barrel, single Skeleton Army) instead of saving it for the hidden high-value target.",
+   "Reacting to a Goblin Barrel only with Arrows every time, giving the spell-bait deck exactly the even trade it wants.",
+   "Defending a Hog Rider at the bridge with a unit placed in front of it, letting the Hog jump the river and get a full connection on the tower anyway.",
+   "Defending with the most expensive answer available (over-defending) and falling behind on elixir even though you stopped the push.",
+   "Bunching all your small units in a tight cluster when the enemy's splash spell is known to be available, gifting a 1-for-3 spell value.",
+   "Sending melee-only units (Knight, Valkyrie, Mini P.E.K.K.A) to deal with air troops they physically cannot target, leaving the tower to take all the damage.",
+   "Counterpushing into a full-elixir opponent instead of waiting until they have over-committed and are low on elixir.",
+   "Letting elixir sit capped at 10 for many seconds while doing nothing, leaking elixir and giving up tempo.",
+   "Ignoring lane choice in double elixir by splitting forces across both lanes so neither push is strong enough to break a tower.",
+   "Chasing a fleeing/kited unit deep into the enemy's side, walking your defenders into the enemy tower and their fresh defense.",
+   "Cycling your win condition repeatedly without support so it gets cleanly defended every time, bleeding elixir for zero damage."
+  ]
+ }
+]

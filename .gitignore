@@ -1,0 +1,48 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Training artifacts
+checkpoints/
+runs/
+runs_sim/
+*.pt
+*.pth
+
+# Dataset artifacts
+data/raw_videos/
+data/frames/
+data/games/
+data/progress.json
+data/queue.jsonl
+data/*.npz
+data/*.log
+
+# Live emulator artifacts
+apps/emulator_bot/ClashRoyaleBuildABot/
+apps/emulator_bot/debug/
+apps/emulator_bot/screenshots/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.venv/
+venv/
+
+# pytest
+.pytest_cache/
+cr_engine/target/
+*.so
