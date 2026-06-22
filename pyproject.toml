@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "clash-royale-zero"
+name = "alpharoyale-zero"
 version = "0.1.0"
-description = "Unified Clash Royale simulator, training stack, dataset pipeline, and live emulator bridge"
+description = "Foundation for a private world-competitive Clash Royale player: simulator, RL/search, dataset pipeline, and live bridge"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.1.0",

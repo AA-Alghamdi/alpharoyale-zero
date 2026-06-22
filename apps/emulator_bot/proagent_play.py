@@ -1,4 +1,4 @@
-"""Run the real ProAgent (clash-royale-zero's strong scripted agent) on the LIVE
+"""Run the real ProAgent (AlphaRoyale-Zero's strong scripted agent) on the LIVE
 BlueStacks game.
 
 Bridge: live frame -> BuildABot detector (State) -> a faithful shim exposing the

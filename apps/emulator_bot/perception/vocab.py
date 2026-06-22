@@ -5,7 +5,7 @@ downstream consumers (RL agent, analytics, real-device play) get one stable
 card namespace regardless of which detection model produced the labels.
 """
 
-# The 125 canonical cards (order = card_id), mirrored from clash-royale-zero's
+# The 125 canonical cards (order = card_id), mirrored from AlphaRoyale-Zero's
 # crsim.cards.CardType so the id matches the simulator's CardType value.
 CANONICAL = [
     'KNIGHT', 'ARCHERS', 'GOBLINS', 'GIANT', 'PEKKA', 'MINIONS', 'BALLOON',

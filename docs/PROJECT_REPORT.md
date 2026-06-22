@@ -7,7 +7,7 @@ partial observation, real-time timing, imperfect screen perception, large
 placement spaces, deck cycles, elixir economics, and long-horizon tactical
 payoffs. A strong project cannot treat those as separate demos.
 
-Clash Royale Zero approaches the problem as a full system. The repo builds one
+AlphaRoyale-Zero approaches the problem as a full system. The repo builds one
 shared control interface and then connects every major layer to it: gameplay
 records, simulator state, action encoding, search, training, evaluation, and
 live emulator execution.

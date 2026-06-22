@@ -1,6 +1,6 @@
-# Clash Royale Zero
+# AlphaRoyale-Zero
 
-Clash Royale Zero is a full-stack research system for building, evaluating, and
+AlphaRoyale-Zero is a full-stack research system for building, evaluating, and
 deploying Clash Royale agents. It combines a mechanics simulator, search and
 policy models, a gameplay dataset pipeline, evaluation harnesses, and a live
 BlueStacks control bridge into one coherent platform.
@@ -152,8 +152,8 @@ The project follows a systems-first methodology:
 ## Quick Start
 
 ```bash
-git clone https://github.com/AA-Alghamdi/clash-royale-zero.git
-cd clash-royale-zero
+git clone https://github.com/AA-Alghamdi/alpharoyale-zero.git
+cd alpharoyale-zero
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"

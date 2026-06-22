@@ -1,6 +1,6 @@
 # Architecture
 
-Clash Royale Zero is designed as a closed-loop platform: collect structured
+AlphaRoyale-Zero is designed as a closed-loop platform: collect structured
 gameplay, improve policies in simulation, evaluate them against stable baselines,
 then deploy the same decision interface to a live emulator.
 
