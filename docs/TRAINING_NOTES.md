@@ -5,12 +5,18 @@ play depends on careful target construction, reward shaping, data quality, and
 simulator fidelity. Treat training as an active engineering workflow rather than
 a one-command solved result.
 
+This training stack is part of a private effort to develop a world-competitive
+Clash Royale player. Its reinforcement-learning design intentionally echoes the
+AlphaGo/AlphaZero/MuZero playbook: search-guided policy improvement, learned
+policy/value models, self-play, replay, warm-start data, and benchmark ladders.
+
 ## What Is Ready
 
 - Simulator contracts and action-space tests.
 - Scripted baselines for regression and live control.
 - Neural policy/value models and feature encoders.
-- Self-play, replay buffer, trainer, distributed worker, and league scaffolding.
+- Self-play, replay buffer, policy/value targets, trainer, distributed worker,
+  and league scaffolding.
 - Imitation warm-start hooks from structured `GameRecord` data.
 - Evaluation tools for baseline games, checkpoint matches, replay, and ladders.
 

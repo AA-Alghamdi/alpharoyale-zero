@@ -4,6 +4,10 @@ Clash Royale Zero is designed as a closed-loop platform: collect structured
 gameplay, improve policies in simulation, evaluate them against stable baselines,
 then deploy the same decision interface to a live emulator.
 
+The repository serves as the foundation for a private project developing a
+world-competitive Clash Royale player. The architecture is therefore optimized
+for measurable policy improvement, not just isolated automation demos.
+
 ## Design Thesis
 
 The architecture is built around one constraint: every subsystem should share the
@@ -91,12 +95,20 @@ The learning side has two policy families:
 development path favors fast Gumbel-style search for self-play and larger search
 budgets for evaluation.
 
+This follows the AlphaGo/AlphaZero/MuZero pattern in spirit: search improves
+action selection, policy/value networks learn from search and outcomes, and
+self-play turns the current agent into its own training curriculum. Clash Royale
+adds real-time execution, partial observation, hidden deck-cycle information, and
+spatial placement constraints, so the architecture keeps search, encoding,
+evaluation, and live taps behind a shared action interface.
+
 ## Training Stack
 
 `training/` contains:
 
 - Self-play workers.
 - Replay buffers.
+- Policy/value target construction.
 - Imitation warm-start scaffolding.
 - Curriculum and domain-randomization hooks.
 - League and PFSP-style opponent sampling.

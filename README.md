@@ -5,6 +5,12 @@ deploying Clash Royale agents. It combines a mechanics simulator, search and
 policy models, a gameplay dataset pipeline, evaluation harnesses, and a live
 BlueStacks control bridge into one coherent platform.
 
+This repository is the foundation of a private project developing a
+world-competitive Clash Royale player. Its purpose is to make that ambition
+credible at the infrastructure level: real data, tested mechanics, search,
+reinforcement learning, evaluation, and live execution all share the same
+interfaces.
+
 The central result is an end-to-end control loop: public gameplay can be turned
 into validated match records, those records can seed training and simulator
 checks, policies can be evaluated through the same action space, and selected
@@ -35,6 +41,26 @@ The same concepts appear everywhere:
 That unification is the point of the project. It makes the system useful before
 there is a champion checkpoint, because each subsystem can be improved and
 verified without rewriting the rest of the stack.
+
+## Reinforcement Learning Lineage
+
+The learning stack deliberately echoes the AlphaGo, AlphaZero, and MuZero family
+of systems at the architectural level:
+
+- Search-guided policy improvement through MCTS, Gumbel search, and
+  MuZero-style search variants.
+- Policy/value networks that consume spatial arena planes, scalar game context,
+  and entity tokens.
+- Self-play generation, replay buffers, value targets, and action-distribution
+  targets for iterative improvement.
+- Imitation warm-starts from structured gameplay records before expensive
+  self-play scale-up.
+- League/PFSP opponent sampling, curriculum hooks, and baseline ladders for
+  avoiding brittle progress against a single opponent.
+
+The analogy is methodological, not a performance claim. The project imports the
+playbook of search plus learned evaluation plus self-play, then adapts it to
+Clash Royale's real-time, partially observed, spatial action setting.
 
 ## End-To-End Result
 
@@ -73,7 +99,7 @@ Implemented capabilities:
 | Simulator | 18x32 arena, elixir phases, towers, troops, spells, buildings, pathing, targeting, splash, stun, champion/evolution metadata, and legal placement masks. |
 | Search | Standard, Gumbel, and MuZero-style search paths sharing the simulator action interface. |
 | Models | Spatial planes, scalar features, entity tokens, transformer-enhanced policy/value networks, and action masking. |
-| Training | Self-play, replay buffers, imitation warm-start hooks, curriculum, league/PFSP opponent sampling, vectorized simulation, and distributed entrypoints. |
+| RL and training | Self-play, replay buffers, policy/value targets, imitation warm-start hooks, curriculum, league/PFSP opponent sampling, vectorized simulation, and distributed entrypoints. |
 | Dataset | Video discovery, download, frame sampling, frame annotation, game segmentation, schema validation, and batch processing tools. |
 | Live control | BlueStacks screenshots, perception shim, simulator-style state mapping, policy selection, ADB tap calibration, spell guards, and decision logs. |
 | Verification | Tests for mechanics, feature encoding, model outputs, search legality, self-play, ladders, imitation fixtures, dataset schema, and cross-engine behavior. |
@@ -176,9 +202,10 @@ schema, live bridge, and verification harness are present and runnable. The live
 bridge can operate BlueStacks through scripted policies and produce decision
 logs.
 
-The next milestone is a stable learned policy: high-confidence imitation data,
-reward target audits, larger self-play runs, and simulator-to-live fidelity
-checks against stronger baselines.
+The next milestone is a stable learned policy suitable for the private
+world-competitive player track: high-confidence imitation data, reward target
+audits, larger self-play runs, and simulator-to-live fidelity checks against
+stronger baselines.
 
 ## Documentation
 

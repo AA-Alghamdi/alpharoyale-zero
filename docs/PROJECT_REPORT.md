@@ -12,6 +12,34 @@ shared control interface and then connects every major layer to it: gameplay
 records, simulator state, action encoding, search, training, evaluation, and
 live emulator execution.
 
+The repository is the foundation of a private project developing a
+world-competitive Clash Royale player. It is intentionally written as an
+infrastructure base rather than a one-off bot: every subsystem exists to support
+measurable policy improvement and eventual live deployment.
+
+## Research Lineage
+
+The project borrows the central pattern behind AlphaGo, AlphaZero, and MuZero:
+combine search, learned policy/value functions, self-play, and a rigorous
+evaluation loop. Clash Royale changes the shape of the problem. Instead of a
+turn-based board with perfect information, the agent faces real-time timing,
+partial observation, elixir management, hidden deck cycle information, and a
+large spatial placement/action space.
+
+The repo adapts that lineage through:
+
+- MCTS, Gumbel search, and MuZero-style search variants.
+- Policy/value models over spatial planes, scalar features, and entity tokens.
+- Self-play workers, replay buffers, value targets, and policy targets.
+- Imitation warm-starts from structured gameplay timelines.
+- Curriculum hooks, domain randomization, and league/PFSP opponent sampling.
+- Evaluation ladders and scripted baselines that provide stable measurements
+  before live deployment.
+
+The reference to AlphaGo-style systems is methodological. It describes the
+training architecture this repo enables, not a claim that the current checkpoint
+has reached world-class play.
+
 ## The Milestone
 
 The consolidated repo proves a closed loop:
@@ -85,6 +113,10 @@ the same action concepts. This prevents the classic split where training learns
 one interface, evaluation uses another, and deployment needs a third translation
 layer.
 
+For the private competitive-player track, this alignment is what makes
+reinforcement learning practical: self-play actions, search-improved targets,
+baseline evaluations, and live emulator taps remain comparable.
+
 ### 6. Validate the Boundaries
 
 The repo validates behavior at several levels:
@@ -108,14 +140,14 @@ The repo validates behavior at several levels:
 | Dataset schema | `samples/game_records/realyt1_sample.json` validates against `crpipe.schema.GameRecord`. |
 | CI | GitHub Actions passes lint, tests, and dataset smoke on `main`. |
 | Live bridge | BlueStacks control path is implemented with screenshot capture, perception shim, action selection, calibrated ADB taps, spell guards, and run logs. |
-| Training readiness | Self-play, replay buffers, imitation warm-start hooks, Gumbel/MuZero-style search, curriculum, league sampling, and distributed entrypoints are present. |
+| RL readiness | Self-play, replay buffers, policy/value targets, imitation warm-start hooks, Gumbel/MuZero-style search, curriculum, league sampling, and distributed entrypoints are present. |
 
 ## What Makes The Project Substantial
 
 The repo is substantial because it joins three usually separate projects:
 
 1. A research simulator with legal actions, card mechanics, feature encoders,
-   search, training, and evaluation.
+   search, reinforcement learning, and evaluation.
 2. A data engine that converts real gameplay into structured, validated records.
 3. A live emulator bridge that uses the same policy interface against a running
    Clash Royale client.
@@ -126,9 +158,10 @@ three.
 ## Honest Boundary
 
 The project does not claim a finished champion policy. The current system is the
-infrastructure required to train, audit, and deploy one. The learned-policy path
-still needs larger high-confidence datasets, reward target audits, simulator
-fidelity measurements, and long self-play runs against stronger baselines.
+foundation required to train, audit, and deploy one inside the private
+world-competitive player effort. The learned-policy path still needs larger
+high-confidence datasets, reward target audits, simulator fidelity measurements,
+and long self-play runs against stronger baselines.
 
 That boundary is intentional. The repo is structured so the next work is
 measurable rather than theatrical.
